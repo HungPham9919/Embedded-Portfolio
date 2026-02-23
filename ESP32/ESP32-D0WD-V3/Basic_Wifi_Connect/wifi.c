@@ -41,7 +41,7 @@ void wifi_initialize(void){
     esp_event_loop_create_default();
     esp_netif_create_default_wifi_sta(); // sta
 
-    wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT(); // Khoi tao driver
+    wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT(); // driver initialized
     esp_wifi_init(&wifi_cfg);
 
     esp_event_handler_register(WIFI_EVENT,ESP_EVENT_ANY_ID, &wifi_handler,NULL);
