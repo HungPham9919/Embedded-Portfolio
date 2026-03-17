@@ -266,10 +266,10 @@ esp_err_t BMI160_Setup(void){
     printf("Value of acc pmu state is 0x%02X \n",state); 
     printf("ACC and GYRO are in normal mode \n");
 
-    BIM160_write(ACC_CONF,sens.acc_cfg); 
-    BIM160_write(ACC_RANGE,sens.acc_range); 
-    BIM160_write(GYRO_CONF,sens.gyro_cfg); 
-    BIM160_write(GYRO_RANGE,sens.gyro_range);
+    BMI160_write(ACC_CONF,sens.acc_cfg); 
+    BMI160_write(ACC_RANGE,sens.acc_range); 
+    BMI160_write(GYRO_CONF,sens.gyro_cfg); 
+    BMI160_write(GYRO_RANGE,sens.gyro_range);
 
     return ESP_OK;
 }
