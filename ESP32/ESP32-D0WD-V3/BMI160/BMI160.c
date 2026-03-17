@@ -117,7 +117,7 @@ esp_err_t BMI160_CMD(uint8_t cmd, uint8_t value){
     return ESP_OK;
 }
 
-esp_err_t BIM160_write(uint8_t reg, uint8_t data){
+esp_err_t BMI160_write(uint8_t reg, uint8_t data){
     uint8_t buf[2] = {reg,data};
     esp_err_t ret = i2c_master_transmit(bmi160_handle,buf,sizeof(buf),pdMS_TO_TICKS(100));
     if(ret != ESP_OK){
