@@ -58,16 +58,3 @@ esp_err_t BMI160_Setup(void);
 void sensitivity(void);
 void vBMI160_Sensor_Task(void *pvParameter);
 #endif
-
-/*
-    i2c1_master_init();
-    BMI160_Init();
-    BMI160_Setup();
-    sensitivity();
-
-    xTaskCreate(vBMI160_Sensor_Task,"BMI_TASK",4096,NULL,5,&bmi160_task);
-
-    //int64_t t1 = esp_timer_get_time();
-    //int64_t t2 = esp_timer_get_time();
-    //printf("Thời gian thực thi I2C: %lld us\n", (t2 - t1));
-*/
