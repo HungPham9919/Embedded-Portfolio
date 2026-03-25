@@ -12,6 +12,11 @@
 #include "stdint.h"
 #include "stm32f4xx.h"
 
+typedef struct {
+	uint16_t pm1,pm2_5,pm4,pm10;
+	int16_t humid,temp,voc,nox,co2;
+}Sensor_data;
+
 #define SEN66_ADDR 0x6b
 #define Measure_continuous 0x0021 // delay 50ms
 #define Stop_measure 0x0104 // delay 1400ms
@@ -41,33 +46,8 @@ void Send_command_write(uint8_t slave_id, uint8_t *data, int length);
 void Start_Or_Stop_Sensor(uint16_t cmd, uint32_t wait_ms);
 uint16_t combine_data(uint8_t data1,uint8_t data2);
 
-typedef struct {
-	uint16_t pm1,pm2_5,pm4,pm10;
-	int16_t humid,temp,voc,nox,co2;
-}Sensor_data;
+
 
 void Return_Value_Of_Sensor(Sensor_data *data);
-
-/*
- *
- * How to test
- *
- * volatile uint16_t pm1;
-volatile int16_t co2;
-
- *   Sensor_data sensor;
-  Config(); // GPIOA, C
-  Start_Or_Stop_Sensor(Measure_continuous, 20);
-
-    while (1)
-  {
-	  Return_Value_Of_Sensor(&sensor);
-
-	  pm1 = sensor.pm1; // create more variable
-	  co2 = sensor.co2;
-
-	  delay_ms(20);
-  }
- */
 
 #endif /* INC_SENSIRION_SENSOR_H_ */
