@@ -1,6 +1,17 @@
 # The Configuration - I2C3 - 400KHz
 #include "stm32f4xx.h"
 #include "stdio.h"
+#include "bmi088.h"
+
+void delay_ms(uint32_t time_Delay){
+	SysTick->CTRL |= (1 << 0)|(1 << 2);
+	SysTick->VAL = 0;
+	SysTick->LOAD = 15999; 			// 16MHz/1000 - 1
+	for(uint32_t i = 0; i < time_Delay; i++){
+		while(!(SysTick->CTRL & (1 << 16)));
+	}
+	SysTick->CTRL = 0;
+}
 
 void Initialization(void){
   // I2C3 - PA8-SCL - PC9-SDA
@@ -31,3 +42,24 @@ void Initialization(void){
 	I2C3->TRISE = 9;
 	I2C3->CR1 |= (1 << 0);
 }
+
+void main(void){
+	Initialization();
+	drone_angle.Roll_angle = 0.0f;
+	drone_angle.Pitch_angle = 0.0f;
+	drone_angle.Yaw_angle = 0.0f;
+	
+	GYRO_ACC_LSB(sens.acc_range, sens.gyro_range); // Determine the LSB
+	BMI088_Initialize();
+	delay_ms(50);
+	BMI088_Calib();
+	delay_ms(50);
+
+	uint8_t acc_data[6] = {0};
+    uint8_t gyro_data[6] = {0};
+	float dt = 0.005f; // Because i choose the ODR is 200Hz -> So the time is 1/200
+	Read_Data(GYRO_ADDR, GYRO_Data, gyro_data, 6);
+    Read_Data(ACC_ADDR, ACC_Data, acc_data, 6);
+    Calculate_And_Filter_Angle(acc_data,gyro_data, dt);
+}
+
