@@ -8,10 +8,8 @@
 #ifndef INC_BMI088_H_
 #define INC_BMI088_H_
 
-#include "bmi088.h"
 #include "stdio.h"
 #include  "stdint.h"
-#include "Initialize.h"
 #include "stm32f4xx.h"
 #include "math.h"
 
