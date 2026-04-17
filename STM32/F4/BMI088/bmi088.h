@@ -14,7 +14,6 @@
 #include "Initialize.h"
 #include "stm32f4xx.h"
 #include "math.h"
-#include "cmsis_os.h"
 
 // ACC has 2 power mode : normal and suspend 0x04 for normal: 0x00 for suspend (clear)
 
