@@ -225,7 +225,6 @@ void BMI088_Data(uint8_t *acc_data, uint8_t *gyro_data){
 	final.gy = (float)(GYRO_Y - bmi088_offset.gyro_offset_y)/sens.gyro_lsb;
 	final.gz = (float)((GYRO_Z - bmi088_offset.gyro_offset_z)/sens.gyro_lsb);
 
-	//final.gz = (float)(GYRO_Z/sens.gyro_lsb);
 }
 
 void Calculate_And_Filter_Angle(uint8_t *acc_data,uint8_t *gyro_data,float dt){
