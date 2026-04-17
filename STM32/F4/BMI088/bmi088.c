@@ -5,8 +5,6 @@
  *      Author: hung
  */
 #include "bmi088.h"
-#include "Initialize.h"
-
 struct Final_data final;
 Status_Of_BMI088 status;
 Drone_Angle drone_angle;
