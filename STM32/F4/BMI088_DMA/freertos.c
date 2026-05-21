@@ -169,7 +169,7 @@ void START_BMI088_TASK(void *argument){
 		if(flag == 0x0001){
 			if(osMutexAcquire(bmi088_mutex, osWaitForever) == osOK){
 				count1++;
-				Read_Data_DMA(ACC_ADDR, ACC_CHIP_ID,&status_test,1);
+				Read_Data_DMA(ACC_ADDR, ACC_CHIP_ID,&status_test,1); // i just test the read function
 				osMutexRelease(bmi088_mutex);
 			}
 
