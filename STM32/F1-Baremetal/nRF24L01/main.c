@@ -85,7 +85,7 @@ uint8_t nRF2_Read_Reg(uint8_t reg){
     uint8_t res;
     GPIOA->BSRR = (1 << (8 + 16)); // CSN-PA8 Low
     nRF2_SPI_SEND(reg);            // R_REGISTER | reg
-    res = nRF2_SPI_SEND(0xFF);     // Byte gi? d? nh?n v?
+    res = nRF2_SPI_SEND(0xFF);
     GPIOA->BSRR = (1 << 8);        // CSN-PA8 High
     return res;
 }
@@ -103,13 +103,13 @@ GPIOB->BSRR = (1 << (12 + 16)); // CE Low
 		nRF2_Write_Reg(0x1C, 0x00); // Disable Dynamic Payload
     nRF2_Write_Reg(0x1D, 0x00); // Disable ALL features
 
-    // GÁN Ð?A CH? NH?N CHO CON THU (nRF2)
+    // GÃN Ã?A CH? NH?N CHO CON THU (nRF2)
     GPIOA->BSRR = (1 << (8 + 16)); // CSN2 Low
     nRF2_SPI_SEND(0x20 | 0x0A);    // RX_ADDR_P0
     for(int i=0; i < 5; i++) nRF2_SPI_SEND(my_addr[i]);
     GPIOA->BSRR = (1 << 8);        // CSN2 High
 
-    GPIOB->BSRR = (1 << 12); // CE High - B?t d?u nghe
+    GPIOB->BSRR = (1 << 12); // CE High
 }
 
 void nRF2_Receive_Payload(uint8_t *pData, uint16_t size) {
@@ -120,7 +120,7 @@ void nRF2_Receive_Payload(uint8_t *pData, uint16_t size) {
     }
     GPIOA->BSRR = (1 << 8);        // CSN High
     
-    // Xóa c? RX_DR (bit 6) sau khi d?c xong
+    // XÃ³a c? RX_DR (bit 6) sau khi d?c xong
     nRF2_Write_Reg(0x07, (1 << 6)); 
 }
 
@@ -144,7 +144,7 @@ void nRF24L01_Config(void){
     nRF_Write_Reg(0x1D, 0x00); // Disable ALL features
 		nRF_Write_Reg(0x11, 16);
     
-    // Gán d?a ch? phát (TX_ADDR) - G?i LSB tru?c
+    // GÃ¡n d?a ch? phÃ¡t (TX_ADDR) - G?i LSB tru?c
     GPIOA->BSRR = (1 << (3 + 16)); 
     nRF_SPI_SEND(W_REGISTER | 0x10); 
     nRF_SPI_SEND(0x01); 
@@ -154,7 +154,7 @@ void nRF24L01_Config(void){
 		nRF_SPI_SEND(0xCC);
     GPIOA->BSRR = (1 << 3);
 
-    // Gán d?a ch? nh?n Pipe 0 (RX_ADDR_P0) ph?i gi?ng h?t TX_ADDR
+    // GÃ¡n d?a ch? nh?n Pipe 0 (RX_ADDR_P0) ph?i gi?ng h?t TX_ADDR
     GPIOA->BSRR = (1 << (3 + 16)); 
     nRF_SPI_SEND(W_REGISTER | 0x0A); 
     nRF_SPI_SEND(0x01);
@@ -169,37 +169,25 @@ uint8_t nRF_Read_Reg(uint8_t reg){
     uint8_t command = reg; // L?nh d?c thanh ghi (0x00 | reg)
     uint8_t res;
 
-    GPIOA->BSRR = (1 << (3 + 16)); // CSN = 0 (B?t d?u phiên SPI)
+    GPIOA->BSRR = (1 << (3 + 16)); // CSN = 0 (B?t d?u phiÃªn SPI)
     
     nRF_SPI_SEND(command);         // G?i d?a ch? thanh ghi mu?n d?c
-    res = nRF_SPI_SEND(0xFF);      // G?i byte gi? d? nh?n v? giá tr? thanh ghi
+    res = nRF_SPI_SEND(0xFF);      // G?i byte gi? d? nh?n v? giÃ¡ tr? thanh ghi
     
-    GPIOA->BSRR = (1 << 3);        // CSN = 1 (K?t thúc phiên SPI)
+    GPIOA->BSRR = (1 << 3);        // CSN = 1 (K?t thÃºc phiÃªn SPI)
     
     return res;
 }
 
-//void nRF24_SPI_DMA_Send(uint8_t *pData, uint16_t size) {
-//    // 2. C?u hình DMA1 Channel 3 (TX)
-//		SPI1->CR2 |= (1 << 1);
-//    DMA1_Channel3->CPAR = (uint32_t)&SPI1->DR;
-//    DMA1_Channel3->CMAR = (uint32_t)pData;
-//    DMA1_Channel3->CCR &= ~(1 << 0);
-//    DMA1_Channel3->CNDTR = size;
-//    DMA1_Channel3->CCR = (1 << 4)|(1 << 7)|(1 << 0); // Memory increment, DIR = Memory to Peripheral
-//    // 3. Kích ho?t
-//    DMA1_Channel3->CCR |= (1 << 0); // Enable DMA Channel
-//}
-
 void nRF_Transmit(uint8_t *pData, uint16_t size){
 	
-		nRF2_Write_Reg(0x07, 0x70);
-    // 1. Flush TX tru?c d? d?m b?o b? d?m s?ch
+	nRF2_Write_Reg(0x07, 0x70);
+    // 1. Flush TX trÆ°á»›c Ä‘á»ƒ Ä‘áº£m báº£o sáº¡ch sáº½
     GPIOA->BSRR = (1 << (3 + 16)); 
     nRF_SPI_SEND(0xE1); 
     GPIOA->BSRR = (1 << 3);
 
-    // 2. N?p Payload b?ng tay (không dùng DMA d? test)
+    // 2. Náº¡p Payload (khÃ´ng dÃ¹ng DMA dá»ƒ test)
     GPIOA->BSRR = (1 << (3 + 16));
     nRF_SPI_SEND(0xA0); // W_TX_PAYLOAD
     for(int i=0; i<size; i++) {
@@ -207,7 +195,7 @@ void nRF_Transmit(uint8_t *pData, uint16_t size){
     }
     GPIOA->BSRR = (1 << 3); // CSN High
 
-    // 3. Xung CE d? kích phát
+    // 3. Xung CE d? kÃ­ch phÃ¡t
     GPIOA->BSRR = (1 << 4);        // CE High
     HAL_Delay(1);
     GPIOA->BSRR = (1 << (4 + 16)); // CE Low
@@ -252,23 +240,22 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	RCC->APB1ENR |= (1 << 14); // SPI2
 	RCC->AHBENR |= (1 << 0); // DMA1
-  RCC->APB2ENR |= (1 << 2)|(1 << 12)|(1 << 3); // GPIOA - SPI1
-  GPIOA->CRL &= ~(0x0F << 20) &~(0x0F << 24) &~(0x0F << 28) &~(0x0F << 16) &~(0x0F << 12);
-  GPIOA->CRL |= (0x03 << 16)|(0x03 << 12); // output push pull
-  GPIOA->CRL |= (0x0B << 20)|(0x08 << 24)|(0x0B << 28); // SCK - MOSI = AF-PP || MISO - input floating
+  	RCC->APB2ENR |= (1 << 2)|(1 << 12)|(1 << 3); // GPIOA - SPI1
+ 	GPIOA->CRL &= ~(0x0F << 20) &~(0x0F << 24) &~(0x0F << 28) &~(0x0F << 16) &~(0x0F << 12);
+ 	GPIOA->CRL |= (0x03 << 16)|(0x03 << 12); // output push pull
+  	GPIOA->CRL |= (0x0B << 20)|(0x08 << 24)|(0x0B << 28); // SCK - MOSI = AF-PP || MISO - input floating
 	
-	GPIOB->CRH &= ~(0x0FFF << 16); // Xóa c?u hình t? chân PB12 d?n PB15
+	GPIOB->CRH &= ~(0x0FFF << 16);
 	GPIOB->CRH |= (0x03 << 16);        // PB12 (CE): Output push-pull 50MHz
 	GPIOB->CRH |= (0x0B << 20);        // PB13 (SCK): Alternate function push-pull
 	GPIOB->CRH |= (0x04 << 24);        // PB14 (MISO): Input floating (ho?c 0x08 Input pull-up)
 	GPIOB->CRH |= (0x0B << 28);        // PB15 (MOSI): Alternate function push-pull
 
-	// C?u hình cho GPIOA (CSN-PA8)
-	GPIOA->CRH &= ~(0x0F << 0);        // Xóa c?u hình chân PA8
+	GPIOA->CRH &= ~(0x0F << 0);    
 	GPIOA->CRH |= (0x03 << 0);         // PA8 (CSN): Output push-pull 50MHz
 	
-	SPI2->CR1 &= ~(1 << 6);            // T?t SPI2 d? c?u hình
-	SPI2->CR1 |= (3 << 3);             // B? chia 16 (8MHz / 16 = 500kHz) - Khá ?n d?nh
+	SPI2->CR1 &= ~(1 << 6);            // T?t SPI2 d? c?u hÃ¬nh
+	SPI2->CR1 |= (3 << 3);             // B? chia 16 (8MHz / 16 = 500kHz)
 	SPI2->CR1 |= (1 << 2);             // Master selection
 	SPI2->CR1 |= (1 << 8) | (1 << 9);  // Software slave management (SSM & SSI)
 	SPI2->CR1 &= ~(1 << 0) & ~(1 << 1); // Mode 0 (CPOL=0, CPHA=0)
@@ -279,15 +266,15 @@ int main(void)
   SPI1->CR1 |= (1 << 2); // master selection
   SPI1->CR1 |= (1 << 8)|(1 << 9);
   SPI1->CR1 &= ~(1 << 0) &~(1 << 1); // CPOL = 0, CPHA = 0
-	SPI1->CR1 |= (1 << 6);
+  SPI1->CR1 |= (1 << 6);
 
   nRF24L01_Config();
-	nRF2_Config_Receiver();
+  nRF2_Config_Receiver();
   uint8_t data[16] = "MyBest";
 	memset(rx_buffer,0,sizeof(rx_buffer));
-	nRF2_Write_Reg(0x00, 0x0F); // Ép l?i vào ch? d? nh?n
+	nRF2_Write_Reg(0x00, 0x0F);
 	nRF2_Write_Reg(0x01, 0x00);
-	nRF_Transmit(data,16);
+	nRF_Transmit(data,16); // truyá»n data
 	HAL_Delay(5);
   /* USER CODE END 2 */
 
@@ -298,13 +285,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-//		nRF_Transmit(data,16);
 		HAL_Delay(5);
-    
-    // --- PH?N NH?N (SPI2) ---
-
     status2 = nRF2_Read_Reg(0x07); 
-    
     if (status2 & (1 << 6)) {      
         nRF2_Receive_Payload(rx_buffer, 16);
     }
