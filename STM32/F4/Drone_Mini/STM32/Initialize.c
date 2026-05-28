@@ -135,8 +135,6 @@ void I2C1_ClearBus(void) {
          for(volatile int d = 0; d < 1200; d++);
       }
 
-        // 4. TẠO FRAME STOP BẰNG TAY ĐỂ ÉP CẢM BIẾN RE-SYNC
-        // Quy trình STOP bằng tay: Kéo SCL Low -> Kéo SDA Low -> Kéo SCL High -> Kéo SDA High
         GPIOB->BSRR = (1 << (6 + 16)); // SCL Low
         for(volatile int d = 0; d < 1000; d++);
         GPIOB->BSRR = (1 << (7 + 16)); // SDA Low
@@ -144,7 +142,7 @@ void I2C1_ClearBus(void) {
 
         GPIOB->BSRR = (1 << 6);        // SCL High
         for(volatile int d = 0; d < 1000; d++);
-        GPIOB->BSRR = (1 << 7);        // SDA High (SDA chuyển từ Low lên High khi SCL đang High = STOP)
+        GPIOB->BSRR = (1 << 7);        // SDA High
         for(volatile int d = 0; d < 2000; d++);
 }
 
@@ -225,11 +223,6 @@ void I2C3_Initialized(void){
 	// I2C3 - PA8-SCL - PC9-SDA
 	RCC->APB1ENR |= (1 << 23); // ENABLE I2C3 - 42 MHz
 	for(volatile int i = 0; i < 100; i++); // wait for stable
-
-//	I2C3->CR1 |= (1 << 15);     // Set bit SWRST = 1 (Giữ I2C dưới trạng thái Reset)
-//	for(volatile int i = 0; i < 500; i++); // Chờ một chút
-//	I2C3->CR1 &= ~(1 << 15);    // Xóa bit SWRST = 0 (Giải phóng I2C ra khỏi Reset)
-//	for(volatile int i = 0; i < 500; i++);
 
 	RCC->APB1RSTR |= (1 << 23);
 	for(volatile int i = 0; i < 1000; i++);
