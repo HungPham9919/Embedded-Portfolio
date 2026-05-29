@@ -14,4 +14,4 @@ This repository showcases my hands-on experiment in:
 
 # ESP32:
 - Bare-metal driver (GPIO, UART, PWM, I2C, SPI, Flash memory).
-- 
+
