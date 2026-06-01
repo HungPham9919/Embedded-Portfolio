@@ -41,23 +41,20 @@ static int nRF51822_index __attribute__((used)) = 0;
 static char last_char __attribute__((used)) = 0; // Dùng để bắt cặp 'O' và 'K'
 
 void UART0_IRQHandler(void){
-    // 1. Xóa cờ lỗi (Không reset mảng để tránh đứt chuỗi do nhiễu)
+
     if (NRF_UART0->EVENTS_ERROR) {
         NRF_UART0->EVENTS_ERROR = 0;
         NRF_UART0->ERRORSRC = NRF_UART0->ERRORSRC; 
     }
 
-    // 2. Nhận dữ liệu
     if(NRF_UART0->EVENTS_RXDRDY){
         NRF_UART0->EVENTS_RXDRDY = 0;
         char current_char = (char)NRF_UART0->RXD;
 
-        // Lưu vào mảng của bạn (đã được bảo vệ bởi attribute)
         if (nRF51822_index < 31) {
             STM32_Data[nRF51822_index++] = current_char;
         }
-
-        // Logic "Bắt quả tang" tức thì: Thấy 'O' đi liền 'K' là bật LED luôn
+        
         if (last_char == 'O' && current_char == 'K') {
             
             NRF_GPIO->OUT ^= (1 << LED_2411N); // Bật LED
