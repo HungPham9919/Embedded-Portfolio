@@ -75,7 +75,7 @@ void SPI_nRF24_Config_RX(const uint8_t *rx_addr){
     usleep(2000); 
     
     // KHỞI TẠO LUỒNG NHẬN CHO 5 DRONE CÙNG LÚC TRÊN CÁC PIPE 
-    nrf_write_reg(EN_RXADDR, 0x3E);  // Mở đồng loạt 5 Pipe (Pipe 1 -> Pipe 5)
+    nrf_write_reg(EN_RXADDR, 0x3F);  // Mở đồng loạt 6 Pipe  0 (Pipe 1 -> Pipe 5)
     usleep(2000); 
     
     // Pipe 0 và Pipe 1 ghi đầy đủ 5 bytes địa chỉ gốc
@@ -87,7 +87,7 @@ void SPI_nRF24_Config_RX(const uint8_t *rx_addr){
     nrf_write_reg(RX_ADDR_P4, drone_addresses[3][0]); usleep(2000);  // Pipe 4 nghe Drone 4
     nrf_write_reg(RX_ADDR_P5, drone_addresses[4][0]); usleep(2000);  // Pipe 5 nghe Drone 5
     
-    nrf_write_reg(DYNPD, 0x3E);      usleep(2000); // Kích hoạt Dynamic Payload trên cả 5 Pipe (1-5 )
+    nrf_write_reg(DYNPD, 0x3F);      usleep(2000); // Kích hoạt Dynamic Payload trên cả 6 Pipe (0-5)
     nrf_write_reg(FEATURE, 0x04);    usleep(2000); 
 
     nrf_write_reg(STATUS, 0x70);     usleep(2000); 
@@ -143,7 +143,11 @@ void nRF24_Transmit(const uint8_t *tx_addr, const uint8_t *pData, uint8_t len) {
     static uint8_t tx_buf[34] __attribute__ ((aligned (32)));
     tx_buf[0] = W_TX_PAYLOAD;
     memcpy(&tx_buf[1], pData, len);
-    struct spi_ioc_transfer trans_payload = { .tx_buf = (unsigned long)tx_buf, .len = (uint32_t)(len + 1), .speed_hz = spi_speed, .bits_per_word = 8 };
+    struct spi_ioc_transfer trans_payload = { 
+        .tx_buf = (unsigned long)tx_buf, 
+        .len = (uint32_t)(len + 1), 
+        .speed_hz = spi_speed, 
+        .bits_per_word = 8 };
     ioctl(spi_fd, SPI_IOC_MESSAGE(1), &trans_payload);
 
     // 2. Kích xung CE tối thiểu 15us để đẩy gói tin lên không trung
@@ -164,39 +168,48 @@ void nRF24_Transmit(const uint8_t *tx_addr, const uint8_t *pData, uint8_t len) {
     }
 
     // 4. Xóa cờ trạng thái phát
-    nrf_write_reg(STATUS, 0x30); 
+    nrf_write_reg(STATUS, 0x70); 
 
     // Nếu bị kẹt bộ phát do tối đa lượt gửi, dọn sạch hàng đợi TX
     if (status & (1 << 4)) {
         uint8_t flush_tx_cmd = FLUSH_TX;
-        struct spi_ioc_transfer trans_f = { .tx_buf = (unsigned long)&flush_tx_cmd, .len = 1, .speed_hz = spi_speed };
+        struct spi_ioc_transfer trans_f = { 
+            .tx_buf = (unsigned long)&flush_tx_cmd, 
+            .len = 1, 
+            .speed_hz = spi_speed };
         ioctl(spi_fd, SPI_IOC_MESSAGE(1), &trans_f);
     }
 }
 
 void Switch_To_TX_Mode(void) {
     SET_CE(0);
-    uint8_t config = nrf_read_reg(CONFIG);
-    config &= ~(1 << 0); 
-    nrf_write_reg(CONFIG, config);
+    nrf_write_reg(CONFIG, 0x0E); 
     nrf_write_reg(STATUS, 0x70); 
     
     uint8_t flush_cmd = FLUSH_TX;
-    struct spi_ioc_transfer trans_flush = { .tx_buf = (unsigned long)&flush_cmd, .len = 1, .speed_hz = spi_speed };
+    struct spi_ioc_transfer trans_flush = { 
+        .tx_buf = (unsigned long)&flush_cmd, 
+        .len = 1, 
+        .speed_hz = spi_speed };
     ioctl(spi_fd, SPI_IOC_MESSAGE(1), &trans_flush);
 }
 
 void Switch_To_RX_Mode(void) {
-    SET_CE(0);
-    uint8_t config = nrf_read_reg(CONFIG);
-    config |= (1 << 0); 
-    nrf_write_reg(CONFIG, config);
+    SET_CE(0); // Hạ CE để lật cấu hình an toàn
+    nrf_write_reg(CONFIG, 0x0F); 
+    
+    // 2. Dọn dẹp trận địa: Xóa cờ ngắt và xả sạch bộ đệm
     nrf_write_reg(STATUS, 0x70);
     
     uint8_t flush_cmd = FLUSH_RX;
-    struct spi_ioc_transfer trans_flush = { .tx_buf = (unsigned long)&flush_cmd, .len = 1, .speed_hz = spi_speed };
+    struct spi_ioc_transfer trans_flush = { 
+        .tx_buf = (unsigned long)&flush_cmd, 
+        .len = 1, 
+        .speed_hz = spi_speed };
     ioctl(spi_fd, SPI_IOC_MESSAGE(1), &trans_flush);
-    SET_CE(1);
+    
+    SET_CE(1); // Dựng CE lên để kích hoạt mạch bắt sóng
+    usleep(130); // Trễ 130us theo đúng datasheet (Thời gian mạch PLL chuyển đổi trạng thái)
 }
 
 void sig_handler(int signo) {
@@ -260,7 +273,7 @@ void* RF_Gateway_Task(void *arg) {
             fflush(stdout);
             
             // Ép địa chỉ Pipe 0 trùng địa chỉ đích để nhận gói Auto-ACK ngầm
-            nrf_Write_bytes(0x0A, target_drone_addr, 5); 
+            // nrf_Write_bytes(0x0A, target_drone_addr, 5); 
 
             // Gọi hàm gốc phát sóng (Hàm này tự giật CE, tự đợi cờ xong tự dọn cờ STATUS)
             nRF24_Transmit(target_drone_addr, (uint8_t*)global_cmd, len_to_send);
