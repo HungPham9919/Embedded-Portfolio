@@ -74,18 +74,16 @@ void nRF51822_2411N_Configuration(const RF_Config_t *cfg){
 
 void Switching_Function(int status){
     switch (status)
-    {
-    case 1: // receiver
-        NRF_GPIO->OUTSET = (1 << RXEN_2411);  // RXEN enable
-        break;
-    
-    default: // transfer
-
-        NRF_GPIO->OUTCLR = (1 << RXEN_2411);
-        break;
-    }
+        {
+        case 1: // receiver
+            NRF_GPIO->OUTSET = (1 << RXEN_2411);  // RXEN enable
+            break;
+        default: // transfer
+            NRF_GPIO->OUTCLR = (1 << RXEN_2411);
+            break;
+        }
 }
-// int RF_count = 0;
+
 void Data_Processing(uint8_t *raw_data){
     uint8_t data_len = raw_data[0] & 0x3F;
     if (data_len > 0 && data_len <= 32) {
@@ -93,26 +91,31 @@ void Data_Processing(uint8_t *raw_data){
            USART0_Send_Char(raw_data[i + 2]); 
         }
         USART0_Send_Char('\n');
-        // if(RF_count % 2 == 0){
-        //     NRF_GPIO->OUTSET = (1 << LED_2411N); 
-        // }
-        // else {
-        //     NRF_GPIO->OUTCLR = (1 << LED_2411N); 
-        // }
-        // RF_count++;
     }
+    NRF_GPIO->OUTSET = (1 << LED_2411N);
 }
 
 uint8_t Auto_Get_Drone_ID(void){
-    uint32_t chip_id = *(volatile uint32_t *)0x10000060; // DEVICEID[0] 66e43b1a
+    uint32_t chip_id = *(volatile uint32_t *)0x10000060; // DEVICEID[0]
     switch (chip_id)
     {
     case 0x66e43b1a:
         return 1;
         break;
-    
+    case 0xdd283d1d:
+        return 2;
+        break;
+    case 0x3efaeb68:
+        return 3;
+        break;
+    case 0x0ad279a1:
+        return 4;
+        break;
+    case 0x09372faf: 
+        return 5;  
+        break;
     default:
-        return 1;
+        return 0;
         break;
     }
 }
@@ -152,12 +155,14 @@ void Master_To_Drone(uint8_t drone_id, uint8_t state) { // receiver
     NRF_RADIO->EVENTS_ADDRESS = 0;
     NRF_RADIO->EVENTS_END = 0;
 
+    // NRF_RADIO->EVENTS_DISABLED = 0; // add
+
     NRF_RADIO->SHORTS = (1UL << 0)|(1UL << 1); // ready start- end - rx dis
     
     NRF_RADIO->INTENCLR = 0xFFFFFFFF;
     NRF_RADIO->INTENSET = (1UL << 3) | (1UL << 1); 
 
-    NVIC_SetPriority(RADIO_IRQn, 1);
+    NVIC_SetPriority(RADIO_IRQn, 3); // low priority
     NVIC_ClearPendingIRQ(RADIO_IRQn);
     NVIC_EnableIRQ(RADIO_IRQn);
 
@@ -186,9 +191,7 @@ void RADIO_IRQHandler(void)
         {
             Data_Processing(rx2411_buffer);
         }
-        for(volatile int i = 0; i < 32; i++) {
-                    rx2411_buffer[i] = 0;
-                }
+        memset(rx2411_buffer, 0, sizeof(rx2411_buffer));
         __DSB();
 
         while(NRF_RADIO->STATE != 0);
@@ -202,10 +205,11 @@ void Drone_To_Master(uint8_t *data, uint8_t data_len ,uint8_t drone_id, uint8_t 
     tx_dma_buffer[0] = data_len; // Byte 0: Ép trường LENGTH
     tx_dma_buffer[1] = 0; // Byte 1: Ép trường S1 = 0
 
-    memcpy(&tx_dma_buffer[2], data, data_len); 
+    memcpy(&tx_dma_buffer[2], data, data_len);
 
-    NRF_RADIO->PREFIX0 = swap_bits(drone_id);
-    NRF_RADIO->TXADDRESS = 0; // Địa chỉ vùng nhớ 0 
+
+    NRF_RADIO->PREFIX0 = (NRF_RADIO->PREFIX0 & 0xFFFFFF00) | (swap_bits(drone_id));
+    NRF_RADIO->TXADDRESS = 0;
 
     Switching_Function(state);
     NRF_RADIO->EVENTS_ADDRESS = 0;
@@ -222,6 +226,10 @@ void Drone_To_Master(uint8_t *data, uint8_t data_len ,uint8_t drone_id, uint8_t 
     while (NRF_RADIO->EVENTS_END == 0);
     NRF_RADIO->EVENTS_END = 0; 
 
+    NRF_RADIO->EVENTS_DISABLED = 0;
     NRF_RADIO->TASKS_DISABLE = 1;
-    while (NRF_RADIO->STATE != 0);
+
+    while(!NRF_RADIO->EVENTS_DISABLED);
+
+    NRF_RADIO->EVENTS_DISABLED = 0;
 }
