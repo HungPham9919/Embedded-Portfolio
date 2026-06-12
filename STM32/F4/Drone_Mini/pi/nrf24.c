@@ -208,31 +208,66 @@ void Switch_To_RX_Mode(void) {
         .speed_hz = spi_speed };
     ioctl(spi_fd, SPI_IOC_MESSAGE(1), &trans_flush);
     
-    SET_CE(1); // Dựng CE lên để kích hoạt mạch bắt sóng
-    usleep(130); // Trễ 130us theo đúng datasheet (Thời gian mạch PLL chuyển đổi trạng thái)
+    SET_CE(1); 
+    usleep(130); 
 }
 
 void sig_handler(int signo) {
     if (signo == SIGINT) {
-        printf("\n[HỆ THỐNG] Dang tat Gateway an toan...\n");
+        printf("\n[HỆ THỐNG] Phát hiện Ctrl+C! Đang hủy hệ thống khẩn cấp nhưng an toàn...\n");
         
-        // 1. Hạ chân CE để ngắt chip nRF24L01 lập tức
+        // 1. Hạ chân CE lập tức để cô lập chip nRF24L01, ngừng thu/phát vô tuyến
         if (ce_request) {
             gpiod_line_request_set_value(ce_request, ce_line_num, 0);
         }
+        usleep(1000); // Trễ 1ms để chip nhận biết trạng thái Standby-I
 
-        // 2. Kích hoạt toàn bộ Semaphore để giải thoát cho các luồng đang bị treo (sem_wait / sem_timedwait)
+        // 2. Ép chip nRF24L01 về trạng thái ngủ sâu (Power Down) và xả sạch FIFO rác
+        if (spi_fd >= 0) {
+            // Ghi CONFIG = 0x00 (Tắt PWR_UP, tắt PRIM_RX) -> Đưa chip về trạng thái ngủ tuyệt đối
+            uint8_t config_shutdown[2] = { (W_REGISTER | CONFIG), 0x00 };
+            struct spi_ioc_transfer trans_cfg = { 
+                .tx_buf = (unsigned long)config_shutdown, 
+                .len = 2, 
+                .speed_hz = spi_speed, 
+                .bits_per_word = 8 
+            };
+            ioctl(spi_fd, SPI_IOC_MESSAGE(1), &trans_cfg);
+
+            // Xóa sạch toàn bộ cờ ngắt trên thanh ghi STATUS
+            uint8_t status_clear[2] = { (W_REGISTER | STATUS), 0x70 };
+            struct spi_ioc_transfer trans_stat = { 
+                .tx_buf = (unsigned long)status_clear, 
+                .len = 2, 
+                .speed_hz = spi_speed, 
+                .bits_per_word = 8 
+            };
+            ioctl(spi_fd, SPI_IOC_MESSAGE(1), &trans_stat);
+
+            // Xả sạch bộ đệm phát (FLUSH_TX)
+            uint8_t flush_tx_cmd = FLUSH_TX;
+            struct spi_ioc_transfer trans_ftx = { .tx_buf = (unsigned long)&flush_tx_cmd, .len = 1, .speed_hz = spi_speed };
+            ioctl(spi_fd, SPI_IOC_MESSAGE(1), &trans_ftx);
+
+            // Xả sạch bộ đệm nhận (FLUSH_RX)
+            uint8_t flush_rx_cmd = FLUSH_RX;
+            struct spi_ioc_transfer trans_frx = { .tx_buf = (unsigned long)&flush_rx_cmd, .len = 1, .speed_hz = spi_speed };
+            ioctl(spi_fd, SPI_IOC_MESSAGE(1), &trans_frx);
+        }
+
+        // 3. Giải thoát cho các Semaphore đang bị kẹt (nếu có luồng nào đang đợi)
         sem_post(&sem_tx_request);
         sem_post(&sem_rx_complete);
 
-        // 3. Ép hủy các luồng phụ đang chạy ngầm để tránh kẹt Kernel
-        pthread_cancel(lan_thread_id);
+        // 4. Bấy giờ chip đã ngủ an toàn -> Ép hủy các luồng để thoát ngay lập tức, không chờ đợi
+        printf("[HỆ THỐNG] Đang giải phóng các luồng dữ liệu...\n");
         pthread_cancel(rf_thread_id);
+        pthread_cancel(lan_thread_id);
 
-        // 4. Chờ một vài mili giây cho các luồng giải phóng bộ nhớ sạch sẽ
-        usleep(50000);
+        // Trễ một chút cho OS thu hồi luồng
+        usleep(10000);
 
-        printf("[HỆ THỐNG] Da giai phong tai nguyen. Thoat!\n");
+        printf("[HỆ THỐNG] nRF24L01 đã ngủ sâu (Power Down). Thoát hoàn toàn!\n");
         exit(0); 
     }
 }
@@ -240,11 +275,9 @@ void sig_handler(int signo) {
 void* RF_Gateway_Task(void *arg) {
     (void)arg;
     uint8_t rx_test_buffer[33]; 
-    const char* target_responses[5] = {"DONE1", "DONE2", "DONE3", "DONE4", "DONE5"};
+    const char* target_responses[9] = {"DONE1", "DONE2", "DONE3", "DONE4", "DONE5","DONE6","DONE7","DONE8","DONE9"};
 
     while(1) {
-        // 1. Chờ lệnh từ luồng LAN bàn phím
-        printf("Change \n");
         fflush(stdout); 
         
         sem_wait(&sem_tx_request); 
@@ -252,7 +285,7 @@ void* RF_Gateway_Task(void *arg) {
         // --- PHA 1: CHUẨN BỊ PHÁT ---
         SET_CE(0); 
         Switch_To_TX_Mode();
-        usleep(5000); // 🌟 TRỄ BẢO HIỂM 1: Chờ 5ms để mạch PLL của chip ổn định hoàn toàn ở chế độ TX
+        usleep(5000);
 
         // Xả sạch bộ đệm phát cũ và dọn sạch cờ ngắt
         nrf_write_reg(FLUSH_TX, 0xE1); 
@@ -271,17 +304,14 @@ void* RF_Gateway_Task(void *arg) {
         if(len_to_send > 0 && len_to_send <= 32) {
             printf("[GATEWAY_TX] Đang phát lệnh thực tế: '%s' (Độ dài: %d byte)...\n", global_cmd, len_to_send);
             fflush(stdout);
-            
-            // Ép địa chỉ Pipe 0 trùng địa chỉ đích để nhận gói Auto-ACK ngầm
-            // nrf_Write_bytes(0x0A, target_drone_addr, 5); 
-
+        
             // Gọi hàm gốc phát sóng (Hàm này tự giật CE, tự đợi cờ xong tự dọn cờ STATUS)
             nRF24_Transmit(target_drone_addr, (uint8_t*)global_cmd, len_to_send);
         }
         
         // --- PHA 2: CHUYỂN TIẾP VẬT LÝ ---
-        SET_CE(0);    // Đảm bảo hạ chân CE xuống thấp hoàn toàn
-        usleep(5000); // 🌟 TRỄ BẢO HIỂM 2: Ép hoãn 5ms để chip nRF hoàn tất việc phát/nhận ACK vật lý, không lật CONFIG quá đột ngột
+        SET_CE(0);
+        usleep(5000); 
 
         // --- PHA 3: CHUYỂN SANG THU PHẢN HỒI ---
         Switch_To_RX_Mode();       
@@ -299,7 +329,6 @@ void* RF_Gateway_Task(void *arg) {
         while (1) { 
             uint8_t status = nrf_read_reg(STATUS);
 
-            // Nếu Bit 6 (RX_DR) nổ -> Có gói tin phản hồi từ Drone về
             if (status & (1 << 6)) { 
                 SET_CE(0); // Hạ CE để đọc dữ liệu qua SPI ổn định
 
@@ -311,7 +340,7 @@ void* RF_Gateway_Task(void *arg) {
                            rx_test_buffer, len, status);
                     fflush(stdout);
 
-                    for (int i = 0; i < 5; i++) {
+                    for (int i = 0; i < 9; i++) {
                         if (strcmp((char*)rx_test_buffer, target_responses[i]) == 0) {
                             has_response = 1;
                             printf("[GATEWAY] Khop chinh xac voi mang kiem tra: %s\n", target_responses[i]);
@@ -334,8 +363,8 @@ void* RF_Gateway_Task(void *arg) {
             usleep(2000); // Giãn cách 2ms giảm tải CPU cho Pi
 
             // Giữ thời gian nghe sóng lâu hơn một chút (250 chu kỳ * 2ms = 500ms) để đợi STM32 xử lý lệnh
-            if (++rx_timeout_counter > 250) {
-                printf("[GATEWAY -> TIMEOUT RX] Đã quá 500ms không nhận được gói DONE nào. Tự động thoát chu kỳ.\n");
+            if (++rx_timeout_counter > 500) {
+                printf("[GATEWAY -> TIMEOUT RX] Đã quá 3s không nhận được gói DONE nào. Tự động thoát chu kỳ.\n");
                 fflush(stdout);
                 break;
             }
@@ -351,12 +380,12 @@ void* LAN_Network_Task(void* arg) {
     char input_buf[100];
 
     printf("\n=========================================================\n");
-    printf("[LAN_TASK] CHẾ ĐỘ NHẬP LỆNH BÀN PHÍM - CỐ ĐỊNH DRONE 1\n");
+    printf("[LAN_TASK] CHẾ ĐỘ NHẬP LỆNH BÀN PHÍM \n");
     printf("=========================================================\n");
 
     while(1) {
-        // 1. Ép cứng địa chỉ đích là Drone 1
-        memcpy(target_drone_addr, drone_addresses[0], 5);
+        memcpy(target_drone_addr, drone_addresses[4], 5);
+
 
         // 2. Chờ người dùng nhập nội dung lệnh từ bàn phím
         printf("\n[LAN_TASK] Nhập lệnh gửi DRONE 1: ");
@@ -391,7 +420,7 @@ void* LAN_Network_Task(void* arg) {
         // 4. Treo luồng chờ phản hồi ngược lại từ Drone 1 (Timeout tối đa 3 giây)
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += 3; 
+        ts.tv_sec += 8; 
 
         printf("[LAN_TASK] Đang treo luồng chờ xác nhận 'DONE' từ Drone 1...\n");
         if (sem_timedwait(&sem_rx_complete, &ts) == 0) {
@@ -529,12 +558,12 @@ int main(void) {
     sem_init(&sem_tx_request, 0, 0);
     sem_init(&sem_rx_complete, 0, 0);
 
-    // Kích hoạt hệ điều hành Linux chạy đa luồng song song
+    // // Kích hoạt hệ điều hành Linux chạy đa luồng song song
 
     pthread_create(&rf_thread_id, NULL, RF_Gateway_Task, NULL);
     pthread_create(&lan_thread_id, NULL, LAN_Network_Task, NULL);
 
-    // Neo giữ luồng chính không giải phóng bộ nhớ hệ thống
+    // // Neo giữ luồng chính không giải phóng bộ nhớ hệ thống
 
     pthread_join(rf_thread_id, NULL); // Transmit
     pthread_join(lan_thread_id, NULL);
