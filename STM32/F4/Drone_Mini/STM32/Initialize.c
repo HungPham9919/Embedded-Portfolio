@@ -11,6 +11,7 @@
 #include "stm32f4xx.h"
 #include "bmi088.h"
 #include "string.h"
+#include "cmsis_os.h"
 
 
 void delay_ms(uint32_t time_Delay){
@@ -107,74 +108,87 @@ void Init_The_Config_Of_Drone(void){
 	NVIC->IP[40] = (uint8_t)(6 << 4);
 };
 
-
+int pwm(int duty){							// MOTOR POWER
+	int val_return = (3360*duty)/100;
+	return val_return;
+}
 
 void I2C1_ClearBus(void) {
 	RCC->AHB1ENR |= (1 << 1); // GPIOB
+	osDelay(2);
     // 1.PB6 (SCL) và PB7 (SDA) GPIO Output Open-drain
     GPIOB->MODER &= ~(3 << 12) &~(3 << 14);
     GPIOB->MODER |= (1 << 12)|(1 << 14); // PB6,7 Output
 
+    GPIOB->OTYPER |= (1 << 6)|(1 << 7); // Open-drain
     GPIOB->OSPEEDR &= ~(3 << 12) &~(3 << 14);
     GPIOB->OSPEEDR |= (3 << 12)|(3 << 14);
-
-    GPIOB->OTYPER |= (1 << 6)|(1 << 7); // Open-drain
-    GPIOB->PUPDR &= ~(3 << 12) &~(1 << 14);
+    GPIOB->PUPDR &= ~(3 << 12) &~(3 << 14);
 
     GPIOB->BSRR |= (1 << 6)|(1 << 7); // High
 
-    for(int d = 0; d < 2000; d++){};
+    osDelay(2);
 
     for(int i = 0; i < 20; i++) {
     	if (GPIOB->IDR & (1 << 7)) { // SDA
             break;
          }
+
          GPIOB->BSRR = (1 << (6 + 16)); // SCL = Low
-         for(volatile int d = 0; d < 1200; d++);
+         osDelay(2);
          GPIOB->BSRR = (1 << 6);        // SCL = High
-         for(volatile int d = 0; d < 1200; d++);
+         osDelay(2);
       }
 
         GPIOB->BSRR = (1 << (6 + 16)); // SCL Low
-        for(volatile int d = 0; d < 1000; d++);
+        osDelay(2);
         GPIOB->BSRR = (1 << (7 + 16)); // SDA Low
-        for(volatile int d = 0; d < 1000; d++);
+        osDelay(2);
 
         GPIOB->BSRR = (1 << 6);        // SCL High
-        for(volatile int d = 0; d < 1000; d++);
+        osDelay(2);
         GPIOB->BSRR = (1 << 7);        // SDA High
-        for(volatile int d = 0; d < 2000; d++);
+        osDelay(2);
+}
+
+void I2C1_RST_APB(void){
+	RCC->APB1RSTR |= (1 << 21); // reset I2C1
+	osDelay(2);
+	RCC->APB1RSTR &= ~(1 << 21);
+	osDelay(2);
 }
 
 void I2C1_Initialized(void){
 	RCC->APB1ENR |= (1 << 21); // ENABLE I2C1 - 42MHz
-	for(volatile int i = 0; i < 500; i++); // wait for stable
-
-	// PB6-SCL PB7-SCL
+	osDelay(2);
+	// PB6-SCL PB7-SDA
 	GPIOB->MODER &= ~(3 << 12) &~(3 << 14);
 	GPIOB->MODER |= (2 << 12)|(2 << 14);
+
 	GPIOB->OTYPER |= (1 << 6)|(1 << 7); // OPEN DRAIN
-	GPIOB->OSPEEDR |= (3 << 12)|(3 << 14);
 	GPIOB->PUPDR &= ~(3 << 12) &~(3 << 14);
+
+	GPIOB->OSPEEDR &= ~((3 << 12) | (3 << 14));
+	GPIOB->OSPEEDR |= (3 << 12)|(3 << 14);
+
+	GPIOB->AFR[0] &= ~(0x0F << 24) &~(0x0F << 28);
 	GPIOB->AFR[0] |= (4 << 24)|(4 << 28); //AFR
 
-	RCC->APB1RSTR |= (1 << 21); // reset I2C1
-	for(volatile int i = 0; i < 500; i++);
-	RCC->APB1RSTR &= ~(1 << 21);
-	for(volatile int i = 0; i < 500; i++);
-
 	I2C1->CR1 &= ~(1 << 0);
-	I2C1->CR2 = 42; // 24MHz
-	I2C1->CCR = (1 << 15) | 35; // FM = 24MHz /(3 * 400K);
+	I2C1->CR2 = 42; // 42 MHz
+
+	I2C1->CCR = (1 << 15) | 35; // FM = 42MHz /(3 * 400K);
 	I2C1->TRISE = 14; // TRISE = 0.3*24 + 1
 	I2C1->CR1 |= (1 << 0); // ON
+	osDelay(2);
 }
 
-volatile int i2c3_count_bus = 20;
-
+volatile int i2c3_count = 0;
 void I2C3_ClearBus(void) {
+	I2C3->CR1 &= ~(1 << 0);
+	i2c3_count++;
 	RCC->AHB1ENR |= (1 << 2)|(1 << 0); // GPIOC,A
-	for(volatile int i = 0; i < 500; i++); // wait for stable
+	osDelay(3);
 
     GPIOA->MODER &= ~(3 << 16); GPIOA->MODER |= (1 << 16); // PA8 Output
     GPIOC->MODER &= ~(3 << 18); GPIOC->MODER |= (1 << 18); // PC9 Output
@@ -194,40 +208,50 @@ void I2C3_ClearBus(void) {
     // Thả SCL và SDA lên cao mặc định
     GPIOA->BSRR = (1 << 8);
     GPIOC->BSRR = (1 << 9);
-    for(volatile int d = 0; d < 2000; d++);
+    osDelay(2);
 
     for (int i = 0; i < 20; i++) {
         if (GPIOC->IDR & (1 << 9)) {
             break;
         }
-        i2c3_count_bus--;
-
         GPIOA->BSRR = (1 << (8 + 16)); // SCL = Low
-        for(volatile int d = 0; d < 1200; d++);
+        osDelay(2);
         GPIOA->BSRR = (1 << 8);        // SCL = High
-        for(volatile int d = 0; d < 1200; d++);
+        osDelay(2);
     }
 
     GPIOA->BSRR = (1 << (8 + 16)); // SCL Low
-    for(volatile int d = 0; d < 1200; d++);
+    osDelay(2);
     GPIOC->BSRR = (1 << (9 + 16)); // SDA Low
-    for(volatile int d = 0; d < 1200; d++);
+    osDelay(2);
 
     GPIOA->BSRR = (1 << 8);        // SCL High
-    for(volatile int d = 0; d < 1200; d++);
+    osDelay(2);
     GPIOC->BSRR = (1 << 9);        // SDA High
-    for(volatile int d = 0; d < 2000; d++);
+    osDelay(2);
+}
+
+void I2C3_RST_APB(void){
+	RCC->APB1RSTR |= (1 << 23);
+	osDelay(2);
+	RCC->APB1RSTR &= ~(1 << 23);
+	osDelay(2);
 }
 
 void I2C3_Initialized(void){
 	// I2C3 - PA8-SCL - PC9-SDA
 	RCC->APB1ENR |= (1 << 23); // ENABLE I2C3 - 42 MHz
-	for(volatile int i = 0; i < 100; i++); // wait for stable
+	osDelay(2);
+
+	I2C3->CR1 |= (1 << 15);
+    osDelay(2);
+	I2C3->CR1 &= ~(1 << 15);
+    osDelay(2);
 
 	RCC->APB1RSTR |= (1 << 23);
-	for(volatile int i = 0; i < 1000; i++);
+    osDelay(2);
 	RCC->APB1RSTR &= ~(1 << 23);
-	for(volatile int i = 0; i < 1000; i++);
+    osDelay(2);
 
 	GPIOA->MODER &= ~(3 << 16);
 	GPIOC->MODER &= ~(3 << 18);
@@ -261,21 +285,38 @@ void I2C3_Initialized(void){
 	I2C3->CCR |= (1 << 15)| 35;
 	I2C3->TRISE = 14;
 	I2C3->CR1 |= (1 << 0);
+    osDelay(3);
+
 }
 
 Sensor_address addr;
 volatile int adr;
+#include "cmsis_os.h"
+extern osThreadId_t Error_Thread;
 
-void Check_Address_I2C3(void){
+int Check_Address_I2C3(void){
     addr.sensor3 = 0;
     addr.sensor4 = 0;
+
     int nos = 0;
     for(adr = 1; adr < 128; adr++){
-        while(I2C3->SR2 & (1 << 1));
+    	uint32_t timeout = 10000;
+        while (I2C3->SR2 & (1 << 1) && --timeout){};
+		if(timeout == 0) {
+			return 0;
+		}
         I2C3->CR1 |= (1 << 8);
-        while(!(I2C3->SR1 & (1 << 0))){};
+    	timeout = 10000;
+        while (!(I2C3->SR1 & (1 << 0)) && --timeout){};
+		if(timeout == 0) {
+			return 0;
+		}
         I2C3->DR = (adr << 1);
-        while(!(I2C3->SR1 & ((1 << 1) | (1 << 10))));
+    	timeout = 10000;
+        while (!(I2C3->SR1 & ((1 << 1) | (1 << 10))) && --timeout){};
+		if(timeout == 0) {
+			return 0;
+		}
         if(I2C3->SR1 & (1 << 1)){
             nos++;
             if(nos == 1) addr.sensor3 = adr;
@@ -287,39 +328,73 @@ void Check_Address_I2C3(void){
 
         if(I2C3->SR1 & (1 << 10)){
             I2C3->SR1 &= ~(1 << 10);
-
         }
+
         I2C3->CR1 |= (1 << 9);
-        for(volatile int i = 0; i < 10000; i++);
+        timeout = 10000;
+        while ((I2C3->CR1 & (1 << 9)) && --timeout){};
+		if(timeout == 0) {
+			return 0;
+		}
+
         if(nos == 2) break;
-    }
+    };
+    return (nos == 2) ? 1 : 0;
 }
 
-void Check_Address_I2C1(void){ // HAVE 2 SENSORS
+int Check_Address_I2C1(void){ // HAVE 2 SENSORS
 	addr.sensor1 = 0;
 	addr.sensor2 = 0;
-	addr.sensor3 = 0;
+
 	int nos = 0;
 	for(int ADDR = 1; ADDR < 128; ADDR++){
+	    uint32_t timeout = 10000;
+		while(I2C1->SR2 & (1 << 1) && --timeout);
+		if(timeout == 0) {
+			I2C1->CR1 |= (1 << 9);
+			I2C1->CR1 &= ~(1 << 0); // off PE
+			return 0;
+		}
+
 		I2C1->CR1 |= (1 << 8); // START-BIT
-		while(!(I2C1->SR1 & (1 << 0))); // WAIT FOR START-BIT
+		timeout = 10000;
+		while(!(I2C1->SR1 & (1 << 0)) && --timeout); // WAIT FOR START-BIT
+		if(timeout == 0) {
+			I2C1->CR1 |= (1 << 9);
+			I2C1->CR1 &= ~(1 << 0); // off PE
+			return 0;
+		}
+
 		I2C1->DR = (ADDR << 1);
-		while(!(I2C1->SR1 & ((1 << 1)|(1 << 10))));
+		timeout = 10000;
+		while(!(I2C1->SR1 & ((1 << 1)|(1 << 10))) && --timeout);
+		if(timeout == 0) {
+			I2C1->CR1 |= (1 << 9);
+			I2C1->CR1 &= ~(1 << 0); // off PE
+			return 0;
+		}
 		if(I2C1->SR1 & (1 << 1)){
 			nos++;
 			if(nos == 1) addr.sensor1 = ADDR;
 			else addr.sensor2 = ADDR;
 			(void)I2C1->SR1;
 			(void)I2C1->SR2;
-		}
-		else {
-			I2C1->CR1 |= (1 << 9); // STOP
-			I2C1->SR1 &= ~(1 << 10); // Clear ack
-		}
 
-		for(int i = 0;i < 10000;i++);
-		if(nos == 2) break;
+		}
+        if(I2C1->SR1 & (1 << 10)){
+            I2C1->SR1 &= ~(1 << 10);
+        }
+
+		timeout = 10000;
+		I2C1->CR1 |= (1 << 9); // STOP
+		while((I2C1->CR1 & (1 << 9)) &&--timeout);
+		if(timeout == 0) {
+			return 0;
+		}
+		if(nos == 1) break;
 	}
+
+	return (nos == 1) ? 1 : 0;
 }
 
 extern uint8_t dma_gyro_buffer[6];

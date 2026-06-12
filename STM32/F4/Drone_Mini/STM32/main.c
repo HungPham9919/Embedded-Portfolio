@@ -90,11 +90,14 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
-  	BUS_Init();
-	I2C3_ClearBus();
-	I2C3_Initialized();
+	BUS_Init();
 
-	Check_Address_I2C3();
+	I2C3_ClearBus();
+	I2C1_ClearBus();
+
+	I2C3_Initialized();
+	I2C1_Initialized();
+
 	Init_The_Config_Of_Drone();
 	USART_Configuration();
 	DMA_I2C3_Stream();
