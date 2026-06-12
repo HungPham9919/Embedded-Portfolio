@@ -60,9 +60,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-typedef struct {
-	uint8_t Channels[8];
-}Radio_cmd_t;
 
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
