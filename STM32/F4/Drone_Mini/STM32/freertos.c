@@ -50,7 +50,6 @@
 #define MOTOR_ALL_STATUS ((1 << 0)|(1 << 1))
 
 #define IMU_INITIALIZED_BIT 1
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -103,11 +102,15 @@ const osThreadAttr_t motor_attributes = {
 osThreadId_t Radio_Thread;
 const osThreadAttr_t Radio_attributes = {
 		.name = "Radio Task",
-		.stack_size = 128 * 4,
+		.stack_size = 256 * 4,
 		.priority = (osPriority_t)osPriorityNormal,
 };
 
 osEventFlagsId_t xStartupEventFlags;
+
+osMessageQueueId_t radioQueueHandle;
+
+
 void START_BMI088_TASK(void *argument);
 void RADIO_TASK(void *argument);
 void MOTOR_STATE_TASK(void *argument);
@@ -148,7 +151,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
-
+	radioQueueHandle = osMessageQueueNew(RADIO_QUEUE_SIZE, RADIO_MSG_LEN, NULL);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -295,54 +298,51 @@ void START_BMI088_TASK(void *argument){
 }
 
 volatile int Radio_count = 0,fly = 0, base = 0;
-extern char nRF51822_Data[32];
-extern int idx;
 extern float base_pwm; // MOTOR POWER
 extern int x_pos, y_pos;
 
 void RADIO_TASK(void *argument){
+	char local_radio_data[RADIO_MSG_LEN];
+	osEventFlagsSet(xStartupEventFlags, RADIO_BIT);
 	for(;;){
-		osEventFlagsSet(xStartupEventFlags, RADIO_BIT);
-		uint32_t Radio_Flag = osThreadFlagsWait(0x0001, osFlagsWaitAny, osWaitForever);
-		if(Radio_Flag == 0x0001){
-
-			if(strstr(nRF51822_Data, "STATE") != NULL){
+		osStatus_t status = osMessageQueueGet(radioQueueHandle, local_radio_data, NULL, osWaitForever);
+		if(status == osOK){
+			if(strstr(local_radio_data, "STATE") != NULL){
 				Radio_count++;
 				GPIOC->BSRR = (1 << 0); // LED ON
 				USART6_Send_String("OK");
 				osEventFlagsSet(xStartupEventFlags, RADIO_BIT);
 			}
-			else if(strstr(nRF51822_Data, "FLY") != NULL){ 			// Bay len
+			else if(strstr(local_radio_data, "FLY") != NULL){ 			// Bay len
 				GPIOC->BSRR = (1 << 16); // LED OFF
 				USART6_Send_String("OK");
 				fly++;
 			}
-			else if(strstr(nRF51822_Data, "BASE") != NULL){			// Nâng độ cao
-				base_pwm = converted(nRF51822_Data);
+			else if(strstr(local_radio_data, "BASE") != NULL){			// Nâng độ cao
+				base_pwm = converted(local_radio_data);
 				GPIOC->BSRR = (1 << 0); // LED ON
 				USART6_Send_String("OK");
 				base++;
 			}
-			else if(strstr(nRF51822_Data, "X_POS") != NULL){
-				x_pos = converted(nRF51822_Data);
+			else if(strstr(local_radio_data, "X_POS") != NULL){
+				x_pos = converted(local_radio_data);
 				GPIOC->BSRR = (1 << 0); // LED ON
 				USART6_Send_String("OK");
 			}
 
-			else if(strstr(nRF51822_Data, "Y_POS") != NULL){
-				y_pos = converted(nRF51822_Data);
+			else if(strstr(local_radio_data, "Y_POS") != NULL){
+				y_pos = converted(local_radio_data);
 				GPIOC->BSRR = (1 << 0); // LED ON
 				USART6_Send_String("OK");
 				base++;
 			}
 
-			else if(strstr(nRF51822_Data, "LANDING") != NULL){ 		// Hạ Cánh
+			else if(strstr(local_radio_data, "LANDING") != NULL){ 		// Hạ Cánh
 				GPIOC->BSRR = (1 << 0); // LED ON
 				USART6_Send_String("OK");
 			}
 
-		    idx = 0;
-		    memset(nRF51822_Data, 0, sizeof(nRF51822_Data));
+		    memset(local_radio_data, 0, sizeof(local_radio_data));
 		}
 	}
 }
