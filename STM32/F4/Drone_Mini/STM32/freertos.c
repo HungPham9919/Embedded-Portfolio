@@ -29,6 +29,8 @@
 #include "bmi088.h"
 #include "PWM_Control.h"
 #include "event_groups.h"
+#include "string.h"
+#include "Radio_Communication.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,6 +48,9 @@
 #define MOTOR_FLAG_STARTUP (1 << 0)
 #define MOTOR_FLAG_EMERGENCY (1 << 1)
 #define MOTOR_ALL_STATUS ((1 << 0)|(1 << 1))
+
+#define IMU_INITIALIZED_BIT 1
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -70,22 +75,25 @@ const osThreadAttr_t defaultTask_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+
+osThreadId_t Error_Thread;
+const osThreadAttr_t ErrorTask_attributes = {
+		.name = "Error_Task",
+		.stack_size = 128 * 4,
+		.priority = (osPriority_t) osPriorityRealtime1,
+};
+
 osThreadId_t bmi088_thread;
 const osThreadAttr_t bmi088task_attributes = {
 		.name = "bmi088_task",
 		.stack_size = 1024 * 4,
-		.priority = (osPriority_t) osPriorityHigh5,
+		.priority = (osPriority_t) osPriorityRealtime,
 };
 
 osMutexId_t bmi088_mutex;
 const osMutexAttr_t bmi088mutex_attributes = {
 		.name = "bmi088_Mutex",
 		.attr_bits = osMutexRecursive,
-};
-
-osMessageQueueId_t Radio_queue;
-const osMessageQueueAttr_t Radio_Queue_attributes = {
-		.name = "Radio Communication",
 };
 
 osThreadId_t Motor_Thread;
@@ -99,13 +107,17 @@ osThreadId_t Radio_Thread;
 const osThreadAttr_t Radio_attributes = {
 		.name = "Radio Task",
 		.stack_size = 128 * 4,
-		.priority = (osPriority_t)osPriorityAboveNormal2,
+		.priority = (osPriority_t)osPriorityNormal,
 };
 
 osEventFlagsId_t xStartupEventFlags;
 void START_BMI088_TASK(void *argument);
 void RADIO_TASK(void *argument);
 void MOTOR_STATE_TASK(void *argument);
+void ERROR_TASK(void *argument);
+
+volatile osThreadId_t I2C1_Broken_Task_Handle = NULL;
+volatile osThreadId_t I2C3_Broken_Task_Handle = NULL;
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -139,7 +151,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
-	Radio_queue = osMessageQueueNew(10, sizeof(Radio_cmd_t),&Radio_Queue_attributes);
+
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -148,6 +160,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  Error_Thread = osThreadNew(ERROR_TASK, NULL, &ErrorTask_attributes);
   bmi088_thread = osThreadNew(START_BMI088_TASK, NULL, &bmi088task_attributes);
   Motor_Thread = osThreadNew(MOTOR_STATE_TASK, NULL, &motor_attributes);
   Radio_Thread = osThreadNew(RADIO_TASK, NULL, &Radio_attributes);
@@ -167,9 +180,46 @@ void MX_FREERTOS_Init(void) {
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
+volatile int count = 0, count1 = 0;
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
+	osDelay(50);
+	while(1) {
+	  if(Check_Address_I2C3() == 1) {
+	     break;
+	  }
+	  else {
+	     I2C3_Broken_Task_Handle = osThreadGetId();
+	     count1++;
+	     osThreadFlagsSet(Error_Thread, REQ_RESET_I2C3);
+	     osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, osWaitForever);
+	     osDelay(10);
+	  }
+	}
+
+	while(1) {
+	  if(Check_Address_I2C1() == 1) {
+	     break;
+	  }
+	  else {
+	     I2C1_Broken_Task_Handle = osThreadGetId();
+	     count++;
+	     osThreadFlagsSet(Error_Thread, REQ_RESET_I2C1);
+	     osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, osWaitForever);
+	     osDelay(10);
+	     if(count > 100) break;
+	  }
+	}
+
+	EXTI->IMR &= ~(1 << 13) &~(1 << 14); // off external interrupt
+	BMI088_Initialize();
+	osDelay(100);
+	osEventFlagsSet(xStartupEventFlags, IMU_INITIALIZED_BIT);
+	BMI088_Calib();
+	osDelay(50);
+
+//	GPIOC->BSRR = (1 << 0);
 
 	uint32_t flags = osEventFlagsWait(xStartupEventFlags, ALL_READY_BIT, osFlagsWaitAll, osWaitForever);
 	if(flags == ALL_READY_BIT){
@@ -178,7 +228,7 @@ void StartDefaultTask(void *argument)
 		drone_angle.Roll_angle = 0.0f;
 		drone_angle.Pitch_angle = 0.0f;
 		drone_angle.Yaw_angle = 0.0f;
-		GYRO_ACC_LSB(sens.acc_range, sens.gyro_range);
+
 		Setup_PID();
 
 		EXTI->IMR |= (1 << 13)|(1 << 14);
@@ -186,38 +236,59 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	 osDelay(1);
   }
   /* USER CODE END StartDefaultTask */
 }
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+void ERROR_TASK(void *argument){
+	for(;;){
+		uint32_t error_flags = osThreadFlagsWait(REQ_RESET_I2C1 | REQ_RESET_I2C3, osFlagsWaitAny, osWaitForever);
+		if(error_flags & (REQ_RESET_I2C1)){
+			I2C1_ClearBus();
+			I2C1_RST_APB();
+			I2C1_Initialized();
+
+			if(I2C1_Broken_Task_Handle != NULL){
+			   osThreadFlagsSet(I2C1_Broken_Task_Handle, ERROR_FIXED);
+			}
+		}
+
+		if(error_flags & (REQ_RESET_I2C3)){
+			I2C3_ClearBus();
+			I2C3_RST_APB();
+			I2C3_Initialized();
+
+			if(I2C3_Broken_Task_Handle != NULL){
+			   osThreadFlagsSet(I2C3_Broken_Task_Handle, ERROR_FIXED);
+			}
+		}
+	}
+}
+
 volatile int bmi_count = 0;
 void START_BMI088_TASK(void *argument){
-
-	EXTI->IMR &= ~(1 << 13) &~(1 << 14); // off external interrupt
-	BMI088_Initialize();
-	osDelay(100);
-	BMI088_Calib();
-	osDelay(50);
-
 	float dt = 0.005f;
 	uint8_t acc_data[6] = {0};
 	uint8_t gyro_data[6] = {0};
+	GYRO_ACC_LSB(sens.acc_range, sens.gyro_range);
+
+	osEventFlagsWait(xStartupEventFlags, IMU_INITIALIZED_BIT, osFlagsWaitAny, osWaitForever);
 
 	if(status.acc_id == 0x1E){
 		osEventFlagsSet(xStartupEventFlags, IMU_BIT);
-		bmi_count = 1;
+		bmi_count = 1; // Node
 	};
 
 	for(;;){
 		uint32_t flag = osThreadFlagsWait(0x0001, osFlagsWaitAny, osWaitForever);
 		if(flag == 0x0001){
 			if(osMutexAcquire(bmi088_mutex, 2) == osOK){
-				Read_Data_DMA(GYRO_ADDR, GYRO_Data, gyro_data, 6);
+				BMI088_Read_Data_DMA_With_Retry(GYRO_ADDR, GYRO_Data, gyro_data, 6);
 				while(I2C3->SR2 & (1 << 1));
-				Read_Data_DMA(ACC_ADDR, ACC_Data, acc_data, 6);
+				BMI088_Read_Data_DMA_With_Retry(ACC_ADDR, ACC_Data, acc_data, 6);
 				osMutexRelease(bmi088_mutex);
 			}
 			Calculate_And_Filter_Angle(acc_data, gyro_data, dt);
@@ -226,15 +297,55 @@ void START_BMI088_TASK(void *argument){
 	}
 }
 
-volatile int Radio_count = 0;
+volatile int Radio_count = 0,fly = 0, base = 0;
+extern char nRF51822_Data[32];
+extern int idx;
+extern float base_pwm; // MOTOR POWER
+extern int x_pos, y_pos;
+
 void RADIO_TASK(void *argument){
-	osDelay(1000);
-	osEventFlagsSet(xStartupEventFlags, RADIO_BIT);
-	Radio_count = 1;
 	for(;;){
+		osEventFlagsSet(xStartupEventFlags, RADIO_BIT);
 		uint32_t Radio_Flag = osThreadFlagsWait(0x0001, osFlagsWaitAny, osWaitForever);
 		if(Radio_Flag == 0x0001){
-			osEventFlagsSet(xStartupEventFlags, RADIO_BIT);
+
+			if(strstr(nRF51822_Data, "STATE") != NULL){
+				Radio_count++;
+				GPIOC->BSRR = (1 << 0); // LED ON
+				USART6_Send_String("OK");
+				osEventFlagsSet(xStartupEventFlags, RADIO_BIT);
+			}
+			else if(strstr(nRF51822_Data, "FLY") != NULL){ 			// Bay len
+				GPIOC->BSRR = (1 << 16); // LED OFF
+				USART6_Send_String("OK");
+				fly++;
+			}
+			else if(strstr(nRF51822_Data, "BASE") != NULL){			// Nâng độ cao
+				base_pwm = converted(nRF51822_Data);
+				GPIOC->BSRR = (1 << 0); // LED ON
+				USART6_Send_String("OK");
+				base++;
+			}
+			else if(strstr(nRF51822_Data, "X_POS") != NULL){
+				x_pos = converted(nRF51822_Data);
+				GPIOC->BSRR = (1 << 0); // LED ON
+				USART6_Send_String("OK");
+			}
+
+			else if(strstr(nRF51822_Data, "Y_POS") != NULL){
+				y_pos = converted(nRF51822_Data);
+				GPIOC->BSRR = (1 << 0); // LED ON
+				USART6_Send_String("OK");
+				base++;
+			}
+
+			else if(strstr(nRF51822_Data, "LANDING") != NULL){ 		// Hạ Cánh
+				GPIOC->BSRR = (1 << 0); // LED ON
+				USART6_Send_String("OK");
+			}
+
+		    idx = 0;
+		    memset(nRF51822_Data, 0, sizeof(nRF51822_Data));
 		}
 	}
 }
