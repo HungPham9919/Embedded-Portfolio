@@ -1,10 +1,10 @@
 Cách xài nrf51822 bằng st-link.
 
-Xài 2 lệnh này ở 2 terminal khác nhau để xem nó còn sống không.
+Xài 2 lệnh này ở 2 terminal khác nhau để xem nó còn sống không<br>
 
-Terminal 1:  openocd -f interface/stlink.cfg -f target/nrf51.cfg
-Terminal 2: telnet localhost 4444.
-Kết quả:
+Terminal 1:  openocd -f interface/stlink.cfg -f target/nrf51.cfg <br>
+Terminal 2: telnet localhost 4444 <br>
+Kết quả: <br>
 <img width="742" height="627" alt="image" src="https://github.com/user-attachments/assets/9abd9475-79ae-4105-8e4e-4380cb6c0701" />
 
 Kiểm tra giá trị thạch anh trước khi làm:
