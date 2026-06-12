@@ -7,11 +7,15 @@
 #include "bmi088.h"
 #include "Initialize.h"
 #include "cmsis_os.h"
+#include "main.h"
 
 struct Final_data final;
 Status_Of_BMI088 status;
 Drone_Angle drone_angle;
 os bmi088_offset;
+
+extern osThreadId_t I2C3_Broken_Task_Handle;
+extern osThreadId_t Error_Thread;
 
 struct bmi_parameters sens = {
 	.acc_pwr = 0x04,
@@ -28,67 +32,163 @@ struct bmi_parameters sens = {
 	.gyro_int3 = 0x01,
 };
 
-void Write_data(uint8_t slave_id, uint8_t reg, uint8_t value){
-	while (I2C3->SR2 & (1 << 1));
+int Write_data(uint8_t slave_id, uint8_t reg, uint8_t value){
+	volatile uint32_t timeout = 10000;
+	while (I2C3->SR2 & (1 << 1) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
+
+	timeout = 10000;
 	I2C3->CR1 |= (1 << 8); // START BIT
 
-	while(!(I2C3->SR1 & (1 << 0))); // WAIT FOR SB
+	while(!(I2C3->SR1 & (1 << 0)) && --timeout); // WAIT FOR SB
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	I2C3->DR = (slave_id << 1);
-	while(!(I2C3->SR1 & (1 << 1))){
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 1)) && --timeout){
 		if(I2C3->SR1 & (1 << 10)){
 			I2C3->CR1 |= (1 << 9); // stop
 			I2C3->SR1 &= ~(1 << 10);
-			return;
+			return 0;
 		}
 	}
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
+
 	(void)I2C3->SR1;
 	(void)I2C3->SR2;
 
 	I2C3->DR = reg;
 
-	while(!(I2C3->SR1 & (1 << 7))){}; // TC
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 7)) && --timeout){}; // TC
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 	I2C3->DR = value;
 
-	while(!(I2C3->SR1 & (1 << 2))){}; // BTF
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 2)) && --timeout){}; // BTF
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	I2C3->CR1 |= (1 << 9); // stop
-	while (I2C3->SR2 & (1 << 1));
+	while(I2C3->CR1 & (1 << 9)); // wait to done
+
+	while(I2C3->SR2 & (1 << 1));
+	return 1;
 }
 
-void Read_Data(uint8_t slave_id ,uint8_t reg, uint8_t *data, int len){
-	while(I2C3->SR2 & (1 << 1));
-	while (I2C3->CR1 & (1 << 8));
+void BMI088_Write_With_Retry(uint8_t slave_id, uint8_t reg, uint8_t value) {
+    while(1) {
+        if (Write_data(slave_id, reg, value) == 1) {
+            break;
+        }
+        else {
+            I2C3_Broken_Task_Handle = osThreadGetId();
+            osThreadFlagsSet(Error_Thread, REQ_RESET_I2C3);
+
+            osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, osWaitForever);
+            osDelay(5);
+        }
+    }
+}
+
+int Read_Data(uint8_t slave_id ,uint8_t reg, uint8_t *data, int len){
+	volatile uint32_t timeout = 10000;
+	while(I2C3->SR2 & (1 << 1) && --timeout);
+
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	I2C3->CR1 |= (1 << 8);
-	while(!(I2C3->SR1 & (1 << 0)));
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 0)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	I2C3->DR  = (slave_id << 1);
-    while(!(I2C3->SR1 & (1 << 1))){
+	timeout = 10000;
+    while(!(I2C3->SR1 & (1 << 1)) && --timeout){
 		if(I2C3->SR1 & (1 << 10)){
 			I2C3->CR1 |= (1 << 9);
 			I2C3->SR1 &= ~(1 << 10);
-			return;
+			return 0;
 		}
     }; // ADDR
+
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	(void)I2C3->SR1;
 	(void)I2C3->SR2;
 
 	I2C3->DR = reg;
-	while(!(I2C3->SR1 & (1 << 7)));
-	while(!(I2C3->SR1 & (1 << 2)));
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 7)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
+
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 2)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	//read function
+	timeout = 10000;
 	I2C3->CR1 |= (1 << 8);
-	while(!(I2C3->SR1 & (1 << 0)));
+	while(!(I2C3->SR1 & (1 << 0)) && --timeout);
+
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	I2C3->DR = (slave_id << 1) | 1; // read mode
-	while(!(I2C3->SR1 & ((1 << 1)|(1 << 10))));
+	while(!(I2C3->SR1 & ((1 << 1)|(1 << 10))) && --timeout);
+
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
+
 	if(I2C3->SR1 & (1 << 10)){
 	    I2C3->CR1 |= (1 << 9);
 	    I2C3->SR1 &= ~(1 << 10);
-	    return;
+	    return 0;
 	}
 
     if (len == 1)
@@ -111,60 +211,170 @@ void Read_Data(uint8_t slave_id ,uint8_t reg, uint8_t *data, int len){
 			I2C3->CR1 |= (1 << 9);
 		}
 
-	    while (!(I2C3->SR1 & (1 << 6)));
+		timeout = 10000;
+	    while(!(I2C3->SR1 & (1 << 6)) && --timeout){};
+		if(timeout == 0) {
+			I2C3->CR1 |= (1 << 9);
+			I2C3->CR1 &= ~(1 << 0); // off PE
+			return 0;
+		}
 	    data[i] = I2C3->DR;
 	}
-	while (I2C3->SR2 & (1 << 1));
+	timeout = 10000;
+	while(I2C3->SR2 & (1 << 1) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
+
+	return 1;
 }
 
-void Read_Status(uint8_t slave_id ,uint8_t reg, uint8_t *data){
-	while (I2C3->SR2 & (1 << 1));
-	while (I2C3->CR1 & (1 << 8));
+void BMI088_Read_Data_With_Retry(uint8_t slave_id, uint8_t reg, uint8_t *data, int len) {
+    while(1) {
+        if (Read_Data(slave_id, reg, data, len) == 1) {
+            break;
+        }
+        else {
+            I2C3_Broken_Task_Handle = osThreadGetId();
+            osThreadFlagsSet(Error_Thread, REQ_RESET_I2C3);
+
+            osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, osWaitForever);
+            osDelay(3);
+        }
+    }
+}
+
+int Read_Status(uint8_t slave_id ,uint8_t reg, uint8_t *data){
+	volatile uint32_t timeout = 10000;
+	while (I2C3->SR2 & (1 << 1) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	I2C3->CR1 |= (1 << 8);
-	while(!(I2C3->SR1 & (1 << 0)));
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 0)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	I2C3->DR  = (slave_id << 1);
-
-	while(!(I2C3->SR1 & (1 << 1))){
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 1)) && --timeout){
 		if(I2C3->SR1 & (1 << 10)){
 			I2C3->CR1 |= (1 << 9);
 			I2C3->SR1 &= ~(1 << 10);
 			(void)I2C3->SR1;
 			while (I2C3->SR2 & (1 << 1));
-			return;
+			return 0;
 		}
 	};
+
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	(void)I2C3->SR1;
 	(void)I2C3->SR2;
 
 	I2C3->DR = reg;
-	while(!(I2C3->SR1 & (1 << 7)));
-	while(!(I2C3->SR1 & (1 << 2)));
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 7)) && --timeout); 			// TXE
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
-	//read function
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 2)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
+
+																	//read function
 	I2C3->CR1 |= (1 << 8);
-	while(!(I2C3->SR1 & (1 << 0)));
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 0)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 	I2C3->DR = (slave_id << 1) | 1; // read mode
 
-	while(!(I2C3->SR1 & ((1 << 1) | (1 << 10))));
+	timeout = 10000;
+	while(!(I2C3->SR1 & ((1 << 1) | (1 << 10))) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	if(I2C3->SR1 & (1 << 10)){ // Nếu dính NACK ở pha Đọc
 	   I2C3->CR1 |= (1 << 9);   // Phát STOP trước
 	   I2C3->SR1 &= ~(1 << 10); // Xóa AF sau
-	   return;
+	   I2C3->CR1 &= ~(1 << 0); // add
+	   return 0;
 	 }
 
 	I2C3->CR1 &= ~(1 << 10);
+
 	(void)I2C3->SR1;
 	(void)I2C3->SR2;
+
 	I2C3->CR1 |= (1 << 9);
 
-	while(!(I2C3->SR1 & (1 << 6)));
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 6)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 	*data = I2C3->DR;
 
-	while (I2C3->SR2 & (1 << 1));
+	timeout = 10000;
+	while(I2C3->CR1 & (1 << 9) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
+
+	timeout = 10000;
+	while (I2C3->SR2 & (1 << 1) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
+
+	return 1;
+}
+
+void BMI088_Read_Status_With_Retry(uint8_t slave_id, uint8_t reg, uint8_t *data) {
+    while(1) {
+        if (Read_Status(slave_id, reg, data) == 1) {
+            break;
+        }
+        else {
+            I2C3_Broken_Task_Handle = osThreadGetId();
+            osThreadFlagsSet(Error_Thread, REQ_RESET_I2C3);
+
+            osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, osWaitForever);
+            osDelay(5);
+        }
+    }
 }
 
 void GYRO_ACC_LSB(uint8_t acc_range, uint8_t gyro_range){
@@ -203,13 +413,13 @@ void GYRO_ACC_LSB(uint8_t acc_range, uint8_t gyro_range){
 }
 
 void Configuration_Of_BMI088(void){
-	Write_data(ACC_ADDR, ACC_CONFIG,sens.acc_config);
+	BMI088_Write_With_Retry(ACC_ADDR, ACC_CONFIG,sens.acc_config);
 	osDelay(2);
-	Write_data(ACC_ADDR,ACC_RANGE,sens.acc_range);
+	BMI088_Write_With_Retry(ACC_ADDR,ACC_RANGE,sens.acc_range);
 	osDelay(2);
-	Write_data(GYRO_ADDR, GYRO_BANDWIDTH, sens.gyro_bandwidth);
+	BMI088_Write_With_Retry(GYRO_ADDR, GYRO_BANDWIDTH, sens.gyro_bandwidth);
 	osDelay(2);
-	Write_data(GYRO_ADDR, GYRO_RANGE, sens.gyro_range);
+	BMI088_Write_With_Retry(GYRO_ADDR, GYRO_RANGE, sens.gyro_range);
 	osDelay(2);
 }
 
@@ -218,7 +428,7 @@ void BMI088_Calib(void){
 	int16_t gx = 0,gy = 0,gz = 0;
 	uint8_t gyro[6] = {0};
 	for(int i = 0; i < 500; i++){
-		Read_Data(GYRO_ADDR, GYRO_Data,gyro, sizeof(gyro));
+		BMI088_Read_Data_With_Retry(GYRO_ADDR, GYRO_Data, gyro, sizeof(gyro));
 		gx = (gyro[1] << 8)|gyro[0];
 		gy = (gyro[3] << 8)|gyro[2];
 		gz = (gyro[5] << 8)|gyro[4];
@@ -248,20 +458,18 @@ void BMI088_Data(uint8_t *acc_data, uint8_t *gyro_data){
 	GYRO_Y = (int16_t)(gyro_data[3] << 8)|gyro_data[2];
 	GYRO_Z = (int16_t)((gyro_data[5] << 8)|gyro_data[4]);
 
-	final.ax = ACC_X/sens.acc_lsb;
-	final.ay = ACC_Y/sens.acc_lsb;
-	final.az = ACC_Z/sens.acc_lsb;
+	final.ax = (float)(ACC_X/sens.acc_lsb);
+	final.ay = -(float)(ACC_Y/sens.acc_lsb);
+	final.az = -(float)(ACC_Z/sens.acc_lsb);
 
 	// inverse
 
 	final.gx = ((float)(GYRO_X - bmi088_offset.gyro_offset_x)/sens.gyro_lsb);
-	final.gy = ((float)(GYRO_Y - bmi088_offset.gyro_offset_y)/sens.gyro_lsb);
-	final.gz = ((float)((GYRO_Z - bmi088_offset.gyro_offset_z)/sens.gyro_lsb));
+	final.gy = -((float)(GYRO_Y - bmi088_offset.gyro_offset_y)/sens.gyro_lsb);
+	final.gz = -((float)((GYRO_Z - bmi088_offset.gyro_offset_z)/sens.gyro_lsb));
 
 	if(fabs(final.gz) < 0.1f) final.gz = 0;
 }
-
-extern osThreadId_t Motor_Thread;
 
 void Calculate_And_Filter_Angle(uint8_t *acc_data,uint8_t *gyro_data,float dt){
 	BMI088_Data(acc_data, gyro_data);
@@ -275,122 +483,152 @@ void Calculate_And_Filter_Angle(uint8_t *acc_data,uint8_t *gyro_data,float dt){
 
 	if(drone_angle.Yaw_angle > 180) drone_angle.Yaw_angle -= 360;
 	if(drone_angle.Yaw_angle < -180) drone_angle.Yaw_angle += 360;
-
-	if(fabs(drone_angle.Roll_angle) > 30.0 || fabs(drone_angle.Pitch_angle) > 30.0){
-		osThreadFlagsSet(Motor_Thread, 2);
-	}
 }
 
 void Check_Status(void){
-	Read_Status(ACC_ADDR, ACC_CONFIG, &status.acc_cfg);
-	osDelay(1);
-	Read_Status(ACC_ADDR, ACC_RANGE, &status.acc_range);
-	osDelay(1);
-	Read_Status(ACC_ADDR,ACC_IO1_CFG,&status.acc_int1);
-	osDelay(1);
-	Read_Status(ACC_ADDR, ACC_PWR_CFG, &status.acc_pwr_cfg);
-	osDelay(1);
-	Read_Status(ACC_ADDR, ACC_PWR_CRTL, &status.acc_pwr_ctrl);
-	osDelay(1);
+	BMI088_Read_Status_With_Retry(ACC_ADDR, ACC_CONFIG, &status.acc_cfg);
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(ACC_ADDR, ACC_RANGE, &status.acc_range);
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(ACC_ADDR,ACC_IO1_CFG,&status.acc_int1);
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(ACC_ADDR, ACC_PWR_CFG, &status.acc_pwr_cfg);
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(ACC_ADDR, ACC_PWR_CRTL, &status.acc_pwr_ctrl);
+	osDelay(2);
 	// gyro
-	Read_Status(GYRO_ADDR, GYRO_RANGE, &status.gyro_range);
-	osDelay(1);
-	Read_Status(GYRO_ADDR,GYRO_BANDWIDTH,&status.gyro_bandwidth);
-	osDelay(1);
-	Read_Status(GYRO_ADDR, GYRO_LPM1, &status.gyro_lpm1);
-	osDelay(1);
-	Read_Status(GYRO_ADDR, GYRO_INT_CTRL, &status.gyro_int_ctrl); // check
-	osDelay(1);
-	Read_Status(GYRO_ADDR, GYRO_INT34_IO_MAP, &status.gyro_io_map);
-	osDelay(1);
-	Read_Status(GYRO_ADDR, GYRO_INT34_IO_CFG, &status.gyro_io_cfg);\
-	osDelay(1);
-}
-
-void BMI088_Hard_RST_Software(void){
-	Write_data(ACC_ADDR, ACC_SOFT_RST, 0xB6);
-	osDelay(50);
-	Write_data(GYRO_ADDR, GYRO_SOFT_RST, 0xB6); // GYRO_SOFTRESET
-	osDelay(50);
+	BMI088_Read_Status_With_Retry(GYRO_ADDR, GYRO_RANGE, &status.gyro_range);
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(GYRO_ADDR,GYRO_BANDWIDTH,&status.gyro_bandwidth);
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(GYRO_ADDR, GYRO_LPM1, &status.gyro_lpm1);
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(GYRO_ADDR, GYRO_INT_CTRL, &status.gyro_int_ctrl); // check
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(GYRO_ADDR, GYRO_INT34_IO_MAP, &status.gyro_io_map);
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(GYRO_ADDR, GYRO_INT34_IO_CFG, &status.gyro_io_cfg);
+	osDelay(2);
 }
 
 void BMI088_Initialize(void){
-	Write_data(ACC_ADDR, ACC_SOFT_RST, 0xB6);
+	BMI088_Write_With_Retry(ACC_ADDR, ACC_SOFT_RST, 0xB6);
 	osDelay(50);
-	Write_data(ACC_ADDR,ACC_PWR_CFG,sens.acc_pwr_cfg); // Active 0x00
+	BMI088_Write_With_Retry(ACC_ADDR,ACC_PWR_CFG,sens.acc_pwr_cfg); // Active 0x00
 	osDelay(20);
-	Write_data(ACC_ADDR,ACC_PWR_CRTL,sens.acc_pwr); // normal mode 0x04
+	BMI088_Write_With_Retry(ACC_ADDR,ACC_PWR_CRTL,sens.acc_pwr); // normal mode 0x04
 	osDelay(50);
 
-	Write_data(GYRO_ADDR, GYRO_SOFT_RST, 0xB6); // GYRO_SOFTRESET
+	BMI088_Write_With_Retry(GYRO_ADDR, GYRO_SOFT_RST, 0xB6); // GYRO_SOFTRESET
 	osDelay(50);
-	Write_data(GYRO_ADDR, GYRO_LPM1, sens.gyro_pwr); // normal mode
+	BMI088_Write_With_Retry(GYRO_ADDR, GYRO_LPM1, sens.gyro_pwr); // normal mode
 	osDelay(50);
 
 	// Check status
-	Read_Status(ACC_ADDR, ACC_CHIP_ID, &status.acc_id);
-	osDelay(1);
-	Read_Status(GYRO_ADDR, GYRO_CHIP_ID, &status.gyro_id);
+	BMI088_Read_Status_With_Retry(ACC_ADDR, ACC_CHIP_ID, &status.acc_id);
+	osDelay(2);
+	BMI088_Read_Status_With_Retry(GYRO_ADDR, GYRO_CHIP_ID, &status.gyro_id);
 
 	osDelay(20);
 
 	// INT mode
-	Write_data(ACC_ADDR, ACC_IO_MAP, sens.acc_io_map); // 0x04 for 0x58
+	BMI088_Write_With_Retry(ACC_ADDR, ACC_IO_MAP, sens.acc_io_map); // 0x04 for 0x58
 	osDelay(2);
-	Write_data(ACC_ADDR,ACC_IO1_CFG, sens.acc_int1); // 0x0A for 0x53
+	BMI088_Write_With_Retry(ACC_ADDR,ACC_IO1_CFG, sens.acc_int1); // 0x0A for 0x53
 	osDelay(2);
-	Write_data(ACC_ADDR, ACC_IO2_CFG, 0x00); // Off int 2
+	BMI088_Write_With_Retry(ACC_ADDR, ACC_IO2_CFG, 0x00); // Off int 2
 	osDelay(2);
 
-	Write_data(GYRO_ADDR, GYRO_INT34_IO_CFG, sens.gyro_int3);
+	BMI088_Write_With_Retry(GYRO_ADDR, GYRO_INT34_IO_CFG, sens.gyro_int3);
 	osDelay(2);
-	Write_data(GYRO_ADDR, GYRO_INT_CTRL, 0x80);
+	BMI088_Write_With_Retry(GYRO_ADDR, GYRO_INT_CTRL, 0x80);
 	osDelay(2);
-	Write_data(GYRO_ADDR, GYRO_INT34_IO_MAP, sens.gyro_io_map_cfg);
+	BMI088_Write_With_Retry(GYRO_ADDR, GYRO_INT34_IO_MAP, sens.gyro_io_map_cfg);
 	osDelay(2);
 
 	Configuration_Of_BMI088();
-
-	// Check status of register
 //	 Check_Status();
 }
 
 // DMA buffer
 volatile uint32_t dma_ndtr = 0;
-void Read_Data_DMA(uint8_t slave_id ,uint8_t reg, uint8_t *data_dma, int len){
-	while(I2C3->SR2 & (1 << 1));
-	while (I2C3->CR1 & (1 << 8));
+int Read_Data_DMA(uint8_t slave_id ,uint8_t reg, uint8_t *data_dma, int len){
+	volatile uint32_t timeout = 10000;
+	while(I2C3->SR2 & (1 << 1) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
+	timeout = 10000;
 	I2C3->CR1 |= (1 << 8);
-	while(!(I2C3->SR1 & (1 << 0)));
+	while(!(I2C3->SR1 & (1 << 0)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	I2C3->DR  = (slave_id << 1);
-    while(!(I2C3->SR1 & (1 << 1))){ 	// ADDR - Thường crash ở đây
+    while(!(I2C3->SR1 & (1 << 1)) && --timeout){ 	// ADDR - Thường crash ở đây
 		if(I2C3->SR1 & (1 << 10)){
 			I2C3->CR1 |= (1 << 9);
 			I2C3->SR1 &= ~(1 << 10);
-			return;
+			return 0;
 		}
     };
+
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	(void)I2C3->SR1;
 	(void)I2C3->SR2;
 
 	I2C3->DR = reg;
-	while(!(I2C3->SR1 & (1 << 7)));
-	while(!(I2C3->SR1 & (1 << 2)));
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 7)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
-	//read function
+	timeout = 10000;
+	while(!(I2C3->SR1 & (1 << 2)) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
+
+															//read function
+	timeout = 10000;
 	I2C3->CR1 |= (1 << 8);
-	while(!(I2C3->SR1 & (1 << 0)));
+	while(!(I2C3->SR1 & (1 << 0)) && --timeout);
+
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	I2C3->DR = (slave_id << 1) | 1; // read mode
-	while(!(I2C3->SR1 & ((1 << 1)|(1 << 10))));
+	timeout = 10000;
+	while(!(I2C3->SR1 & ((1 << 1)|(1 << 10))) && --timeout);
+	if(timeout == 0) {
+		I2C3->CR1 |= (1 << 9);
+		I2C3->CR1 &= ~(1 << 0); // off PE
+		return 0;
+	}
 
 	if(I2C3->SR1 & (1 << 10)){
 	    I2C3->CR1 |= (1 << 9);
 	    I2C3->SR1 &= ~(1 << 10);
-	    return;
+	    return 0;
 	}
     // DMA
 	DMA1_Stream2->CR &= ~(1 << 0); // off to config
@@ -433,5 +671,21 @@ void Read_Data_DMA(uint8_t slave_id ,uint8_t reg, uint8_t *data_dma, int len){
 	   I2C3->CR1 |= (1 << 9);
 	}
 	I2C3->CR2 &= ~(1 << 11) &~(1 << 12);
+	return 1;
+}
+
+void BMI088_Read_Data_DMA_With_Retry(uint8_t slave_id, uint8_t reg, uint8_t *data, int len) {
+    while(1) {
+        if (Read_Data_DMA(slave_id, reg, data, len) == 1) {
+            break;
+        }
+        else {
+            I2C3_Broken_Task_Handle = osThreadGetId();
+            osThreadFlagsSet(Error_Thread, REQ_RESET_I2C3);
+
+            osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, osWaitForever);
+            osDelay(5);
+        }
+    }
 }
 
