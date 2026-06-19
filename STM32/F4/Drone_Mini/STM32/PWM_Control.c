@@ -22,7 +22,9 @@ typedef struct {
 }PID_Controller;
 
 PID_Controller Pos_Pitch, Pos_Roll, Pos_Yaw;
+
 PID_Controller roll_pid,pitch_pid,yaw_pid;
+
 PID_Controller roll_pid_rate, pitch_pid_rate, yaw_pid_rate;
 
 
@@ -53,6 +55,8 @@ void Setup_PID(void){
 	Pos_Yaw.previous_error = 0;
 
 
+	// Angle
+
 	// dt = 1/200f
 	roll_pid.Kp = 1.0f;
 	roll_pid.Ki = 0;
@@ -79,10 +83,11 @@ void Setup_PID(void){
 	yaw_pid.integral = 0;
 	yaw_pid.previous_error = 0;
 
-	float limit = 3000.0f;
-	roll_pid.output_lim = limit;
-	pitch_pid.output_lim = limit;
-	yaw_pid.output_lim = limit;
+	float limit_angle = 150.0f; // deg/s
+	float limit_rate = 300.0f; // 10% pwm
+	roll_pid.output_lim = limit_angle;
+	pitch_pid.output_lim = limit_angle;
+	yaw_pid.output_lim = limit_angle - 50.0f;
 
 	// Rate
 
@@ -110,18 +115,18 @@ void Setup_PID(void){
 	yaw_pid_rate.integral = 0;
 	yaw_pid_rate.previous_error = 0;
 
-	roll_pid_rate.output_lim = limit;
-	pitch_pid_rate.output_lim = limit;
-	yaw_pid_rate.output_lim = limit;
+	roll_pid_rate.output_lim = limit_rate;
+	pitch_pid_rate.output_lim = limit_rate;
+	yaw_pid_rate.output_lim = limit_rate - 100.0f;
 
 }
 
-float Update_PID(PID_Controller *pid, float measure_value,float dt){ // velocity angle
-	float error_Rate = pid->sp - measure_value;
+float Update_PID(PID_Controller *pid, float measure_value,float dt){
+	float error = pid->sp - measure_value;
 	// Cal P
-	float P = pid->Kp * error_Rate;
+	float P = pid->Kp * error;
 	// Cal I and Anti-Windup
-	pid->integral += error_Rate*dt;
+	pid->integral += error*dt;
 	if(pid->integral > 150) pid->integral = 150; // saturation
 	else if(pid->integral < -150) pid->integral = -150;
 
@@ -131,15 +136,15 @@ float Update_PID(PID_Controller *pid, float measure_value,float dt){ // velocity
 	float derivative = measure_value;
 	float D = -(pid->Kd * derivative);
 
-	float filter_const = pid->N * dt;
-	pid->d_filter += (D - pid->d_filter)*filter_const;
+	float d_alpha = (pid->N*dt)/(1.0f + pid->N*dt);
+	pid->d_filter += (D - pid->d_filter)*d_alpha;
 
 	float output = P + I + pid->d_filter;
 
 	if(output > pid->output_lim) output = pid->output_lim;
 	if(output < -pid->output_lim) output = - pid->output_lim;
 
-	pid->previous_error = error_Rate;
+	pid->previous_error = error;
 	return output;
 }
 
@@ -149,36 +154,40 @@ volatile float u_roll_rate = 0, u_pitch_rate = 0, u_yaw_rate = 0;
 volatile float u_roll_pos = 0,u_pitch_pos = 0,u_yaw_pos = 0;
 int16_t M1 = 0,M2 = 0,M3 = 0,M4 = 0;
 
-float base_pwm = 1680.0f; // 20%
+float base_pwm = 672.0f; // 20%
 
-float dt = 0.005f;
+float rate_dt = 0.005f, angle_dt = 0.02f;
 int x_pos = 0, y_pos = 0;
 
 extern osThreadId_t Motor_Thread;
 
-//float Pos_Cam = 0; Angle_Cam = 0;
-//float Cam_hz = 0.03333f;
+void Control_PWM(float roll_sp, float pitch_sp, float yaw_sp){
 
-void Control_PWM(void){
-	// Position Loop
-//	u_roll_pos = Update_PID(&Pos_Roll, Pos_Cam, Cam_hz);
+	static uint8_t pid_div = 0;
+	pid_div++;
+	if(pid_div > 3){
+		roll_pid.sp = roll_sp;
+		pitch_pid.sp = pitch_sp;
+		yaw_pid.sp = yaw_sp;
 
-	// The outer circle - The angle of IMU
-	u_roll_rate = Update_PID(&roll_pid, drone_angle.Roll_angle, dt);
-	u_pitch_rate = Update_PID(&pitch_pid, drone_angle.Pitch_angle,dt);
-	u_yaw_rate = Update_PID(&yaw_pid, drone_angle.Yaw_angle, dt);
+		// The outer circle - The angle of IMU
+		u_roll_rate = Update_PID(&roll_pid, drone_angle.Roll_angle, angle_dt); // 50Hz
+		u_pitch_rate = Update_PID(&pitch_pid, drone_angle.Pitch_angle,angle_dt);
+		u_yaw_rate = Update_PID(&yaw_pid, drone_angle.Yaw_angle, angle_dt);
 
-	// The inner circle
-	roll_pid_rate.sp = u_roll_rate;
-	pitch_pid_rate.sp = u_pitch_rate;
-	yaw_pid_rate.sp = u_yaw_rate;
+		// The inner circle
+		roll_pid_rate.sp = u_roll_rate;
+		pitch_pid_rate.sp = u_pitch_rate;
+		yaw_pid_rate.sp = u_yaw_rate;
 
-	u_roll = Update_PID(&roll_pid_rate, final.gx, dt);
-	u_pitch = Update_PID(&pitch_pid_rate, final.gy, dt);
-	u_yaw = Update_PID(&yaw_pid_rate, final.gz, dt);
+		pid_div = 0;
+	}
 
-	if(fabs(u_roll) > 30 || fabs(u_pitch) > 30){
-		M1 = 0,M2 = 0,M3 = 0,M4 = 0;
+	u_roll = Update_PID(&roll_pid_rate, final.gx, rate_dt); // 200Hz
+	u_pitch = Update_PID(&pitch_pid_rate, final.gy, rate_dt);
+	u_yaw = Update_PID(&yaw_pid_rate, final.gz, rate_dt);
+
+	if(fabs(drone_angle.Roll_angle) > 30 || fabs(drone_angle.Pitch_angle) > 30){
 		osThreadFlagsSet(Motor_Thread, 2);
 	}
 	else {
@@ -188,93 +197,9 @@ void Control_PWM(void){
 		M4 = (int16_t)(base_pwm - u_roll - u_pitch + u_yaw); // M4 (CCW) front - right
 	}
 
-	// ARR = 3360 = 100%
-	TIM2->CCR4 = (M1 > 2688) ? 2688 : (M1 < 0 ? 0 :(uint32_t)M1); // 80%
-	TIM2->CCR2 = (M2 > 2688) ? 2688 : (M2 < 0 ? 0 :(uint32_t)M2);
-	TIM4->CCR4 = (M3 > 2688) ? 2688 : (M3 < 0 ? 0 :(uint32_t)M3);
-	TIM2->CCR1 = (M4 > 2688) ? 2688 : (M4 < 0 ? 0 :(uint32_t)M4);
+	TIM2->CCR4 = M1;
+	TIM2->CCR2 = M2;
+	TIM4->CCR4 = M3;
+	TIM2->CCR1 = M4;
 }
-
-void stable(void){
-	roll_pid.sp = 0;
-	pitch_pid.sp = 0;
-	yaw_pid.sp = 0;
-
-	Control_PWM();
-}
-
-void Move_Forward(void){
-	// M3 & M4 decrease
-	roll_pid.sp = 0.05f;
-	pitch_pid.sp = 10.0f;
-	yaw_pid.sp = 0;
-
-	Control_PWM();
-}
-
-void Move_Back(void){
-	//  M1 & M2 decrease
-	roll_pid.sp = 0;
-	pitch_pid.sp = -10.0f;
-	yaw_pid.sp = 0;
-
-	Control_PWM();
-}
-
-void Rotate_CW(void){
-	// M2, M4 increase
-	roll_pid.sp = 0;
-	pitch_pid.sp = 0;
-	yaw_pid.sp = -10.0f;
-
-	Control_PWM();
-}
-
-void Rotate_CCW(void){
-	// M1, M3 increase
-	roll_pid.sp = 0;
-	pitch_pid.sp = 0;
-	yaw_pid.sp = 10.0f;
-
-	Control_PWM();
-}
-
-void Move_Left(void){
-	// M1,M4 decrease
-	roll_pid.sp = -10.0f;
-	pitch_pid.sp = 0;
-	yaw_pid.sp = 0;
-
-	Control_PWM();
-}
-
-void Move_Right(void){
-	// M2,M3 decrease
-	roll_pid.sp = 10.0f;
-	pitch_pid.sp = 0;
-	yaw_pid.sp = 0;
-
-	Control_PWM();
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

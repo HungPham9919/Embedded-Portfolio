@@ -58,7 +58,7 @@ void Init_The_Config_Of_Drone(void){
 
 	//84 MHz
 
-	TIM2->ARR = 3359;
+	TIM2->ARR = 3559;
 	TIM2->PSC = 0; // F =  84MHZ/(ARR + 1)(PSC + 1); = 25KHZ
 	TIM2->CNT = 0;
 	TIM2->DIER = 0;
@@ -79,7 +79,7 @@ void Init_The_Config_Of_Drone(void){
 	TIM2->CR1 |= (1 << 0);
 
 	// TIMER 4 - 84MHz
-	TIM4->ARR = 3359;
+	TIM4->ARR = 3559;
 	TIM4->PSC = 0;
 	TIM4->CNT = 0;
 
@@ -106,12 +106,18 @@ void Init_The_Config_Of_Drone(void){
 
 	NVIC->ISER[1] |= (1 << 8);
 	NVIC->IP[40] = (uint8_t)(6 << 4);
+
+	// Battery - PB8 -> external interrupt
+//	GPIOB->MODER &= ~(3 << 16);
+//	EXTI->IMR &= ~(1 << 8);
+//	EXTI->FTSR |= (1 << 8);
+//	SYSCFG->EXTICR[2] &= ~(0x0F << 0);
+//	SYSCFG->EXTICR[2] |= (1 << 4);
+//	EXTI->PR = (1 << 8);
+//	NVIC->IP[23] = (uint8_t)(5 << 4);
+//	NVIC->ISER[0] |= (1 << 23);
 };
 
-int pwm(int duty){							// MOTOR POWER
-	int val_return = (3360*duty)/100;
-	return val_return;
-}
 
 void I2C1_ClearBus(void) {
 	RCC->AHB1ENR |= (1 << 1); // GPIOB
@@ -279,8 +285,8 @@ void I2C3_Initialized(void){
 
 	I2C3->CR1 &= ~(1 << 0);
 	I2C3->CR2 = 42;
-	I2C3->OAR1 = 0;
-	I2C3->OAR2 = 0;
+//	I2C3->OAR1 = 0;
+//	I2C3->OAR2 = 0;
 	I2C3->CCR = 0;
 	I2C3->CCR |= (1 << 15)| 35;
 	I2C3->TRISE = 14;
@@ -301,7 +307,7 @@ int Check_Address_I2C3(void){
     int nos = 0;
     for(adr = 1; adr < 128; adr++){
     	uint32_t timeout = 10000;
-        while (I2C3->SR2 & (1 << 1) && --timeout){};
+        while ((I2C3->SR2 & (1 << 1)) && --timeout){};
 		if(timeout == 0) {
 			return 0;
 		}
@@ -349,7 +355,7 @@ int Check_Address_I2C1(void){ // HAVE 2 SENSORS
 	int nos = 0;
 	for(int ADDR = 1; ADDR < 128; ADDR++){
 	    uint32_t timeout = 10000;
-		while(I2C1->SR2 & (1 << 1) && --timeout);
+		while((I2C1->SR2 & (1 << 1)) && --timeout);
 		if(timeout == 0) {
 			I2C1->CR1 |= (1 << 9);
 			I2C1->CR1 &= ~(1 << 0); // off PE
@@ -446,6 +452,17 @@ void EXTI15_10_IRQHandler(void){
 	}
 }
 
+//extern osMessageQueueId_t Pin_QueueHandle;
+//volatile int bat_int = 0;
+//void EXTI9_5_IRQHandler(void){
+//	if(EXTI->PR & (1 << 8)){
+//		EXTI->PR = (1 << 8);
+//		bat_int++;
+//		uint8_t signal = 1;
+//		osMessageQueuePut(Pin_QueueHandle, &signal, 0, 0);
+//	}
+//}
+
 void DMA1_Stream2_IRQHandler(void){
 	    // Kiểm tra cờ TCIF2 (Bit 21)
 	 if(DMA1->LISR & (1 << 21)){
@@ -462,7 +479,7 @@ void The_First_State(void){
 		switch(i)
 		{
 			case 0:
-				TIM2->CCR1 = 500;
+				TIM2->CCR1 = 300;
 				TIM2->CCR2 = 0;
 				TIM2->CCR4 = 0;
 				TIM4->CCR4 = 0;
@@ -470,7 +487,7 @@ void The_First_State(void){
 				break;
 			case 1:
 				TIM2->CCR1 = 0;
-				TIM2->CCR2 = 500;
+				TIM2->CCR2 = 300;
 				TIM2->CCR4 = 0;
 				TIM4->CCR4 = 0;
 				osDelay(100);
@@ -478,7 +495,7 @@ void The_First_State(void){
 			case 2:
 				TIM2->CCR1 = 0;
 				TIM2->CCR2 = 0;
-				TIM2->CCR4 = 500;
+				TIM2->CCR4 = 300;
 				TIM4->CCR4 = 0;
 				osDelay(100);
 				break;
@@ -486,7 +503,7 @@ void The_First_State(void){
 				TIM2->CCR1 = 0;
 				TIM2->CCR2 = 0;
 				TIM2->CCR4 = 0;
-				TIM4->CCR4 = 500;
+				TIM4->CCR4 = 300;
 				osDelay(100);
 				break;
 			default:
@@ -502,13 +519,8 @@ void The_First_State(void){
 	osThreadFlagsSet(Motor_Thread, 1);
 }
 
+extern float base_pwm;
+
 void Stop_Motor(void){
-	TIM2->CCR1 = 0;
-	TIM2->CCR2 = 0;
-	TIM2->CCR4 = 0;
-	TIM4->CCR4 = 0;
+	base_pwm = 0;
 }
-
-
-
-

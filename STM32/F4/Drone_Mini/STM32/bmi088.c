@@ -34,7 +34,7 @@ struct bmi_parameters sens = {
 
 int Write_data(uint8_t slave_id, uint8_t reg, uint8_t value){
 	volatile uint32_t timeout = 10000;
-	while (I2C3->SR2 & (1 << 1) && --timeout);
+	while ((I2C3->SR2 & (1 << 1)) && --timeout);
 	if(timeout == 0) {
 		I2C3->CR1 |= (1 << 9);
 		I2C3->CR1 &= ~(1 << 0); // off PE
@@ -112,7 +112,7 @@ void BMI088_Write_With_Retry(uint8_t slave_id, uint8_t reg, uint8_t value) {
 
 int Read_Data(uint8_t slave_id ,uint8_t reg, uint8_t *data, int len){
 	volatile uint32_t timeout = 10000;
-	while(I2C3->SR2 & (1 << 1) && --timeout);
+	while((I2C3->SR2 & (1 << 1)) && --timeout);
 
 	if(timeout == 0) {
 		I2C3->CR1 |= (1 << 9);
@@ -221,7 +221,7 @@ int Read_Data(uint8_t slave_id ,uint8_t reg, uint8_t *data, int len){
 	    data[i] = I2C3->DR;
 	}
 	timeout = 10000;
-	while(I2C3->SR2 & (1 << 1) && --timeout);
+	while((I2C3->SR2 & (1 << 1)) && --timeout);
 	if(timeout == 0) {
 		I2C3->CR1 |= (1 << 9);
 		I2C3->CR1 &= ~(1 << 0); // off PE
@@ -248,7 +248,7 @@ void BMI088_Read_Data_With_Retry(uint8_t slave_id, uint8_t reg, uint8_t *data, i
 
 int Read_Status(uint8_t slave_id ,uint8_t reg, uint8_t *data){
 	volatile uint32_t timeout = 10000;
-	while (I2C3->SR2 & (1 << 1) && --timeout);
+	while ((I2C3->SR2 & (1 << 1)) && --timeout);
 	if(timeout == 0) {
 		I2C3->CR1 |= (1 << 9);
 		I2C3->CR1 &= ~(1 << 0); // off PE
@@ -345,14 +345,14 @@ int Read_Status(uint8_t slave_id ,uint8_t reg, uint8_t *data){
 	*data = I2C3->DR;
 
 	timeout = 10000;
-	while(I2C3->CR1 & (1 << 9) && --timeout);
+	while((I2C3->CR1 & (1 << 9)) && --timeout);
 	if(timeout == 0) {
 		I2C3->CR1 &= ~(1 << 0); // off PE
 		return 0;
 	}
 
 	timeout = 10000;
-	while (I2C3->SR2 & (1 << 1) && --timeout);
+	while ((I2C3->SR2 & (1 << 1)) && --timeout);
 	if(timeout == 0) {
 		I2C3->CR1 |= (1 << 9);
 		I2C3->CR1 &= ~(1 << 0); // off PE
@@ -554,7 +554,7 @@ void BMI088_Initialize(void){
 volatile uint32_t dma_ndtr = 0;
 int Read_Data_DMA(uint8_t slave_id ,uint8_t reg, uint8_t *data_dma, int len){
 	volatile uint32_t timeout = 10000;
-	while(I2C3->SR2 & (1 << 1) && --timeout);
+	while((I2C3->SR2 & (1 << 1)) && --timeout);
 	if(timeout == 0) {
 		I2C3->CR1 |= (1 << 9);
 		I2C3->CR1 &= ~(1 << 0); // off PE
