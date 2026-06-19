@@ -363,8 +363,8 @@ void* RF_Gateway_Task(void *arg) {
             usleep(2000); // Giãn cách 2ms giảm tải CPU cho Pi
 
             // Giữ thời gian nghe sóng lâu hơn một chút (250 chu kỳ * 2ms = 500ms) để đợi STM32 xử lý lệnh
-            if (++rx_timeout_counter > 500) {
-                printf("[GATEWAY -> TIMEOUT RX] Đã quá 3s không nhận được gói DONE nào. Tự động thoát chu kỳ.\n");
+            if (++rx_timeout_counter > 200) {
+                printf("[GATEWAY -> TIMEOUT RX] Đã quá 1s không nhận được gói DONE nào. Tự động thoát chu kỳ.\n");
                 fflush(stdout);
                 break;
             }
@@ -384,11 +384,11 @@ void* LAN_Network_Task(void* arg) {
     printf("=========================================================\n");
 
     while(1) {
-        memcpy(target_drone_addr, drone_addresses[4], 5);
+        memcpy(target_drone_addr, drone_addresses[2], 5);
 
 
         // 2. Chờ người dùng nhập nội dung lệnh từ bàn phím
-        printf("\n[LAN_TASK] Nhập lệnh gửi DRONE 1: ");
+        printf("\n[LAN_TASK] Nhập lệnh gửi DRONE : ");
         fflush(stdout);
         
         // Đọc chuỗi ký tự từ bàn phím
@@ -410,7 +410,7 @@ void* LAN_Network_Task(void* arg) {
         global_cmd[sizeof(global_cmd) - 1] = '\0'; // Bảo hiểm kết thúc chuỗi
 
         printf("\n---------------------------------------------------------");
-        printf("\n[LAN_TASK] Đã nhận lệnh bàn phím: '%s' -> Đang gửi cho DRONE 1 (0x%02X)\n", 
+        printf("\n[LAN_TASK] Đã nhận lệnh bàn phím: '%s' -> Đang gửi cho DRONE (0x%02X)\n", 
                 global_cmd, target_drone_addr[0]);
 
         // 3. Đánh thức luồng RF_Gateway_Task dậy để đẩy sóng đi
@@ -420,13 +420,13 @@ void* LAN_Network_Task(void* arg) {
         // 4. Treo luồng chờ phản hồi ngược lại từ Drone 1 (Timeout tối đa 3 giây)
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += 8; 
+        ts.tv_sec += 1; 
 
         printf("[LAN_TASK] Đang treo luồng chờ xác nhận 'DONE' từ Drone 1...\n");
         if (sem_timedwait(&sem_rx_complete, &ts) == 0) {
             printf("[LAN_TASK -> SUCCESS] Quá ngon! Nhận được xác nhận 'DONE' từ Drone 1.\n");
         } else {
-            printf("[LAN_TASK -> TIMEOUT] Quá hạn 3 giây! Không thấy Drone 1 báo cáo.\n");
+            printf("[LAN_TASK -> TIMEOUT] Quá hạn 3 giây! Không thấy Drone báo cáo.\n");
         }
         printf("---------------------------------------------------------\n");
     }
@@ -472,7 +472,6 @@ void* Test_Pi_Receive_Only_Task(void *arg) {
                            rx_test_buffer, len, status, (status >> 1) & 0x07);
                     fflush(stdout);
                 } else {
-                    // 🌟 THIẾU SÓT BỔ SUNG: Nếu đọc độ dài ra 0 hoặc rác, ép xả khẩn cấp để cứu FIFO
                     nrf_write_reg(FLUSH_RX, 0xE2);
                 }
 
