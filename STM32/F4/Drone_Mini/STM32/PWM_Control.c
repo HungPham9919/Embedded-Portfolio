@@ -57,7 +57,6 @@ void Setup_PID(void){
 
 	// Angle
 
-	// dt = 1/200f
 	roll_pid.Kp = 1.0f;
 	roll_pid.Ki = 0;
 	roll_pid.Kd = 0.005;
@@ -85,6 +84,7 @@ void Setup_PID(void){
 
 	float limit_angle = 150.0f; // deg/s
 	float limit_rate = 300.0f; // 10% pwm
+
 	roll_pid.output_lim = limit_angle;
 	pitch_pid.output_lim = limit_angle;
 	yaw_pid.output_lim = limit_angle - 50.0f;
@@ -154,12 +154,14 @@ volatile float u_roll_rate = 0, u_pitch_rate = 0, u_yaw_rate = 0;
 volatile float u_roll_pos = 0,u_pitch_pos = 0,u_yaw_pos = 0;
 int16_t M1 = 0,M2 = 0,M3 = 0,M4 = 0;
 
-float base_pwm = 672.0f; // 20%
+float base_pwm = 0;
 
 float rate_dt = 0.005f, angle_dt = 0.02f;
-int x_pos = 0, y_pos = 0;
 
 extern osThreadId_t Motor_Thread;
+
+// State of drone
+volatile int drone_state = 0;
 
 void Control_PWM(float roll_sp, float pitch_sp, float yaw_sp){
 
@@ -188,18 +190,40 @@ void Control_PWM(float roll_sp, float pitch_sp, float yaw_sp){
 	u_yaw = Update_PID(&yaw_pid_rate, final.gz, rate_dt);
 
 	if(fabs(drone_angle.Roll_angle) > 30 || fabs(drone_angle.Pitch_angle) > 30){
-		osThreadFlagsSet(Motor_Thread, 2);
+		osThreadFlagsSet(Motor_Thread, MOTOR_FLAG_EMERGENCY); // Stop motor
 	}
-	else {
+
+	if(drone_state == 1){
 		M1 = (int16_t)(base_pwm - u_roll + u_pitch - u_yaw); // M1 (CW) rear - right
 		M2 = (int16_t)(base_pwm + u_roll + u_pitch + u_yaw); // M2 (CCW) rear - left
 		M3 = (int16_t)(base_pwm + u_roll - u_pitch - u_yaw); // M3 (CW) front - left
 		M4 = (int16_t)(base_pwm - u_roll - u_pitch + u_yaw); // M4 (CCW) front - right
 	}
 
+	else if(drone_state == 2) {
+		base_pwm = 0;
+		M1 = 0; M2 = 0; M3 = 0; M4 = 0;
+		roll_pid.integral = 0;
+		pitch_pid.integral = 0;
+		yaw_pid.integral = 0;
+
+		roll_pid_rate.integral = 0;
+		pitch_pid_rate.integral = 0;
+		yaw_pid_rate.integral = 0;
+
+	}
+
 	TIM2->CCR4 = M1;
 	TIM2->CCR2 = M2;
 	TIM4->CCR4 = M3;
 	TIM2->CCR1 = M4;
+}
+
+void Stop_Motor(void){
+	base_pwm = 0;
+	TIM2->CCR1 = 0;
+	TIM2->CCR2 = 0;
+	TIM2->CCR4 = 0;
+	TIM4->CCR4 = 0;
 }
 

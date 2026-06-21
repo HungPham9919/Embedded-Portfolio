@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "Initialize.h"
 #include "Radio_Communication.h"
+#include "battery_control.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -101,6 +102,7 @@ int main(void)
 	Init_The_Config_Of_Drone();
 	USART_Configuration();
 	DMA_I2C3_Stream();
+
 
   /* USER CODE END 2 */
 

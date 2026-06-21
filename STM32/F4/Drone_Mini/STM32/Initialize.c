@@ -105,17 +105,31 @@ void Init_The_Config_Of_Drone(void){
 	EXTI->PR = (1 << 13)|(1 << 14); // clear flag
 
 	NVIC->ISER[1] |= (1 << 8);
-	NVIC->IP[40] = (uint8_t)(6 << 4);
+	NVIC->IP[40] = (uint8_t)(5 << 4); // mức 4
 
-	// Battery - PB8 -> external interrupt
-//	GPIOB->MODER &= ~(3 << 16);
-//	EXTI->IMR &= ~(1 << 8);
-//	EXTI->FTSR |= (1 << 8);
-//	SYSCFG->EXTICR[2] &= ~(0x0F << 0);
-//	SYSCFG->EXTICR[2] |= (1 << 4);
-//	EXTI->PR = (1 << 8);
-//	NVIC->IP[23] = (uint8_t)(5 << 4);
-//	NVIC->ISER[0] |= (1 << 23);
+	// Timer 3 for battery
+	RCC->APB1ENR |= (1 << 1); // TIMER 3 - 84MHZ
+	TIM3->CR1 &= ~(1 << 0);
+	TIM3->CNT = 0;
+	TIM3->PSC = 1999; // -> F = 2HZ -> T = 0,5s
+	TIM3->ARR = 11999;
+	TIM3->EGR |= (1 << 0);
+	TIM3->DIER |= (1 << 0);
+	TIM3->CR1 |= (1 << 0);
+	NVIC->ISER[0] |= (1 << 29); // TIMER 3 IRQ
+	NVIC->IP[29] = (uint8_t)(8 << 4); // Mức 7
+
+	// Timer 5 for landing and takeoff -> 8MS-> 125HZ
+	RCC->APB1ENR |= (1 << 3); // TIMER 5
+	TIM5->CR1 &= ~(1 << 0);
+	TIM5->CNT = 0;
+	TIM5->PSC = 1999;
+	TIM5->ARR = 335;
+	TIM5->EGR |= (1 << 0);
+	TIM5->DIER |= (1 << 0);
+//	TIM5->CR1 |= (1 << 0); // The first state -> off
+	NVIC->ISER[1] |= (1 << 18);
+	NVIC->IP[50] = (uint8_t)(7 << 4); // PRIORITY = 6
 };
 
 
@@ -452,16 +466,34 @@ void EXTI15_10_IRQHandler(void){
 	}
 }
 
-//extern osMessageQueueId_t Pin_QueueHandle;
-//volatile int bat_int = 0;
-//void EXTI9_5_IRQHandler(void){
-//	if(EXTI->PR & (1 << 8)){
-//		EXTI->PR = (1 << 8);
-//		bat_int++;
-//		uint8_t signal = 1;
-//		osMessageQueuePut(Pin_QueueHandle, &signal, 0, 0);
-//	}
-//}
+// Battery
+extern osThreadId_t BatteryReadTaskHandle;
+volatile int time3_count = 0;
+void TIM3_IRQHandler(void){
+	if(TIM3->SR & (1 << 0)){
+		// clear flag
+		TIM3->SR &= ~(1 << 0);
+		time3_count++;
+		osThreadFlagsSet(BatteryReadTaskHandle, BATTERY);
+	}
+}
+
+extern int Landing_Takeoff_State;
+volatile int time5_count = 0;
+extern osThreadId_t Motor_Thread;
+void TIM5_IRQHandler(void){
+
+	if(TIM5->SR & (1 << 0)){
+		time5_count++;
+		TIM5->SR &= ~(1 << 0);
+		if(Landing_Takeoff_State == 1){
+			osThreadFlagsSet(Motor_Thread, LANDING); // landing
+		}
+		else if(Landing_Takeoff_State == 2) {
+			osThreadFlagsSet(Motor_Thread, FLY_FROM_BASE); // takeoff
+		}
+	}
+}
 
 void DMA1_Stream2_IRQHandler(void){
 	    // Kiểm tra cờ TCIF2 (Bit 21)
@@ -472,42 +504,39 @@ void DMA1_Stream2_IRQHandler(void){
 	 }
 }
 
-extern osThreadId_t Motor_Thread;
-
 void The_First_State(void){
 	for(int i = 0; i < 5; i++){
 		switch(i)
 		{
-			case 0:
-				TIM2->CCR1 = 300;
+			case 0: // M1
+				TIM2->CCR1 = 0;
 				TIM2->CCR2 = 0;
-				TIM2->CCR4 = 0;
+				TIM2->CCR4 = 300;
 				TIM4->CCR4 = 0;
 			    osDelay(100);
 				break;
-			case 1:
+			case 1: // M2
 				TIM2->CCR1 = 0;
 				TIM2->CCR2 = 300;
 				TIM2->CCR4 = 0;
 				TIM4->CCR4 = 0;
 				osDelay(100);
 				break;
-			case 2:
-				TIM2->CCR1 = 0;
-				TIM2->CCR2 = 0;
-				TIM2->CCR4 = 300;
-				TIM4->CCR4 = 0;
-				osDelay(100);
-				break;
-			case 3:
+			case 2: // M3
 				TIM2->CCR1 = 0;
 				TIM2->CCR2 = 0;
 				TIM2->CCR4 = 0;
 				TIM4->CCR4 = 300;
 				osDelay(100);
 				break;
+			case 3:
+				TIM2->CCR1 = 300;
+				TIM2->CCR2 = 0;
+				TIM2->CCR4 = 0;
+				TIM4->CCR4 = 0;
+				osDelay(100);
+				break;
 			default:
-
 				TIM2->CCR1 = 0;
 				TIM2->CCR2 = 0;
 				TIM2->CCR4 = 0;
@@ -517,10 +546,4 @@ void The_First_State(void){
 		}
 	}
 	osThreadFlagsSet(Motor_Thread, 1);
-}
-
-extern float base_pwm;
-
-void Stop_Motor(void){
-	base_pwm = 0;
 }

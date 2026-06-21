@@ -41,16 +41,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define IMU_INITIALIZED_BIT (1 << 3)
-#define IMU_BIT (1 << 0)
-#define RADIO_START_BIT (1 << 1)
-#define MOTOR_BIT (1 << 2)
-#define ALL_READY_BIT ((1 << 0)|(1 << 1)|(1 << 2))
-
-#define MOTOR_FLAG_STARTUP (1 << 0)
-#define MOTOR_FLAG_EMERGENCY (1 << 1)
-#define MOTOR_ALL_STATUS ((1 << 0)|(1 << 1)|(1 << 2))
-#define LANDING (1 << 2)
 
 /* USER CODE END PD */
 
@@ -194,7 +184,7 @@ void MX_FREERTOS_Init(void) {
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
-volatile int count = 0, count1 = 0,error_flag = 0;
+volatile int count = 0, count1 = 0;
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
@@ -209,7 +199,7 @@ void StartDefaultTask(void *argument)
 	     osThreadFlagsSet(Error_Thread, REQ_RESET_I2C3);
 	     osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, osWaitForever);
 	     osDelay(10);
-	     if(count1 > 100) break;
+	     if(count1 > 50) break;
 	  }
 	}
 
@@ -223,7 +213,10 @@ void StartDefaultTask(void *argument)
 	     osThreadFlagsSet(Error_Thread, REQ_RESET_I2C1);
 	     osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, osWaitForever);
 	     osDelay(10);
-	     if(count > 100) break;
+	     if(count > 50) {
+	    	 osThreadFlagsSet(BatteryReadTaskHandle, BATTERY_ERROR);
+	    	 break;
+	     }
 	  }
 	}
 
@@ -239,7 +232,7 @@ void StartDefaultTask(void *argument)
 	Bat_initialized(); // Pin
 
 	osEventFlagsWait(xStartupEventFlags, ALL_READY_BIT, osFlagsWaitAll, osWaitForever);
-	error_flag++;
+
 	EXTI->IMR |= (1 << 13)|(1 << 14);
 
   /* Infinite loop */
@@ -278,6 +271,8 @@ void ERROR_TASK(void *argument){
 }
 
 volatile int bmi_count = 0;
+int desire_roll = 0, desire_pitch = 0, desire_yaw = 0;
+
 void START_BMI088_TASK(void *argument){
 	osEventFlagsClear(xStartupEventFlags, ALL_READY_BIT); // clear all bit -> event
 	osThreadFlagsWait(0x0001, osFlagsWaitAny, 0);
@@ -298,6 +293,8 @@ void START_BMI088_TASK(void *argument){
 	drone_angle.Pitch_angle = 0.0f;
 	drone_angle.Yaw_angle = 0.0f;
 
+	GPIOC->BSRR = (1 << 0); // oke
+
 	osThreadFlagsWait(0x0001, osFlagsWaitAny, 0);
 	EXTI->PR = (1 << 13) | (1 << 14);
 
@@ -311,48 +308,71 @@ void START_BMI088_TASK(void *argument){
 				osMutexRelease(bmi088_mutex);
 			}
 			Calculate_And_Filter_Angle(acc_data, gyro_data, dt);
-			Control_PWM(0,0,0); // change value -> desired
+			Control_PWM(desire_roll,desire_pitch,desire_yaw); // change value -> desired
 		}
 	}
 }
 
 volatile int Radio_count = 0;
 extern float base_pwm; // MOTOR POWER
-extern int x_pos, y_pos;
+extern int drone_state;
+volatile int Landing_Takeoff_State = 0;
+float base_compare = 0;
 
 void RADIO_TASK(void *argument){
 	char local_radio_data[RADIO_MSG_LEN];
-	osEventFlagsSet(xStartupEventFlags, RADIO_START_BIT); 	// RUN AT THIS TIME
 	for(;;){
 		osStatus_t status = osMessageQueueGet(radioQueueHandle, local_radio_data, NULL, osWaitForever);
 		if(status == osOK){
 			if(strstr(local_radio_data, "START") != NULL){
 				Radio_count++;
-				osEventFlagsSet(xStartupEventFlags, RADIO_START_BIT); 	// RUN AT THIS TIME
 				USART6_Send_String("OK");
 				The_First_State(); // MOTOR
 			}
-			else if(strstr(local_radio_data, "FLY") != NULL){ 			// Bay len
-				USART6_Send_String("OK");
-//				osEventFlagsSet(xStartupEventFlags, RADIO_START_BIT); 	// RUN AT THIS TIME
-			}
-			else if(strstr(local_radio_data, "BASE") != NULL){			// Nâng độ cao
-				base_pwm = PWM_Converted(local_radio_data);
-				USART6_Send_String("OK");
-			}
-			else if(strstr(local_radio_data, "X_POS") != NULL){
-				x_pos = Local_Converted(local_radio_data);
-				USART6_Send_String("OK");
-			}
-
-			else if(strstr(local_radio_data, "Y_POS") != NULL){
-				y_pos = Local_Converted(local_radio_data);
+			else if(strstr(local_radio_data, "TAKEOFF") != NULL){ 			// Bay len
+				osEventFlagsSet(xStartupEventFlags, RADIO_START_BIT); 	// RUN AT THIS TIME
 				USART6_Send_String("OK");
 
+				drone_state = 1; // on motor
+
+				Landing_Takeoff_State = 2; // TAKEOFF
+				TIM5->CR1 |= (1 << 0); // on timer
+				TIM5->CNT = 0;
+			}
+
+			else if(strstr(local_radio_data, "BASE") != NULL){
+				base_compare = PWM_Converted(local_radio_data);
+				if(base_compare > base_pwm){ 	// Increase high || 30%
+					Landing_Takeoff_State = 2; // TAKEOFF
+					TIM5->CR1 |= (1 << 0); // on timer
+					TIM5->CNT = 0;
+				}
+//				else {
+//					Landing_Takeoff_State = 1; // decrease high
+//					TIM5->CR1 |= (1 << 0); // on timer
+//					TIM5->CNT = 0;
+//				}
+
+				USART6_Send_String("OK");
 			}
 
 			else if(strstr(local_radio_data, "LANDING") != NULL){ 		// Hạ Cánh
-				osThreadFlagsSet(Motor_Thread,LANDING);
+				Landing_Takeoff_State = 1; // LANDING
+				TIM5->CR1 |= (1 << 0); // on timer
+				TIM5->CNT = 0;
+				USART6_Send_String("OK");
+			}
+
+			else if(strstr(local_radio_data, "STOP") != NULL){ 		// Pin
+				osThreadFlagsSet(Motor_Thread, MOTOR_FLAG_EMERGENCY); // stop
+				drone_state = 2;
+				USART6_Send_String("OK");
+			}
+
+			else if(strstr(local_radio_data, "RPY") != NULL){ // roll pitch yaw - 6 numbers
+				desire_roll = Atoi_Converted(local_radio_data)/10000; // 2 so dau
+				desire_pitch = (Atoi_Converted(local_radio_data)/100) % 100; // 2 so giua
+				desire_yaw = Atoi_Converted(local_radio_data)%100; // 2 so cuoi
 				USART6_Send_String("OK");
 			}
 
@@ -360,12 +380,6 @@ void RADIO_TASK(void *argument){
 				osThreadFlagsSet(BatteryReadTaskHandle, 1);
 				USART6_Send_String("OK");
 			}
-
-			else if(strstr(local_radio_data, "STOP") != NULL){ 		// Pin
-				osThreadFlagsSet(Motor_Thread, MOTOR_FLAG_EMERGENCY); // stop
-				USART6_Send_String("OK");
-			}
-
 		    memset(local_radio_data, 0, sizeof(local_radio_data));
 		}
 	}
@@ -375,7 +389,6 @@ volatile int motor_count = 0;
 void MOTOR_STATE_TASK(void *argument){
 	osThreadFlagsWait(MOTOR_ALL_STATUS, osFlagsWaitAny, 0); // clear flag
 	The_First_State();
-	osEventFlagsSet(xStartupEventFlags, MOTOR_BIT);
 	for(;;){
 		uint32_t Motor_Flag = osThreadFlagsWait(MOTOR_ALL_STATUS,osFlagsWaitAny, osWaitForever);
 
@@ -385,16 +398,38 @@ void MOTOR_STATE_TASK(void *argument){
 				motor_count++;
 				break;
 			case MOTOR_FLAG_EMERGENCY:
+				drone_state = 2; // off motor
+				TIM5->CR1 &= ~(1 << 0);
+				TIM5->CNT = 0;
 				Stop_Motor();
 				break;
 			case LANDING:
-				if(base_pwm > 50){
-					base_pwm -= 50; // 10%
-					osDelay(1000);
-					osThreadFlagsSet(osThreadGetId(), LANDING); // tự flag bản thân
+				if(base_pwm > 3){
+					base_pwm -= 3; // 1s -> 125 times
 				}
 				else {
+					// change state of drone
+					drone_state = 2; // off
+					base_compare = 0; // RESET
+					TIM5->CR1 &= ~(1 << 0);
+					TIM5->CNT = 0;
 					Stop_Motor(); // Đã hạ cánh xong
+				}
+				break;
+			case FLY_FROM_BASE:
+				if(base_pwm < 1008 || base_pwm < base_compare){ // 30%
+					base_pwm += 3;
+				}
+				else {
+					TIM5->CR1 &= ~(1 << 0);
+					TIM5->CNT = 0;
+
+					if (base_pwm >= base_compare && base_compare > 1008) {
+					     base_pwm = base_compare;
+					 }
+					else {
+					   base_pwm = 1008;
+					}
 				}
 				break;
 			default:
@@ -402,23 +437,28 @@ void MOTOR_STATE_TASK(void *argument){
 		};
 	}
 }
-volatile float shunt_volt = 0;
+
 volatile int bat_count = 0;
+volatile float battery_voltage = 0.0f;
 void BATTERY_READ(void *argument){
-    uint8_t shunt_buffer[2] = {0, 0};
-
+    uint8_t bus_buffer[2] = {0, 0};
     for(;;){
-    	uint32_t pin_flag = osThreadFlagsWait(1, osFlagsWaitAll, osWaitForever);
-    	if(pin_flag == 1){
-            bat_count++;
-            // Đọc thanh ghi Shunt Voltage thay vì Bus Voltage
-            Bat_Read_Data_With_Retry(INA226_ADDR, INA226_Shunt_Voltage, shunt_buffer, 2);
-            int16_t shunt_raw = (int16_t)((shunt_buffer[0] << 8) | shunt_buffer[1]);
-                // LSB của Shunt Voltage mặc định là 2.5 uV (0.0000025 V)
-            shunt_volt = (float)shunt_raw * 0.0000025f;
+    	uint32_t pin_flag = osThreadFlagsWait((BATTERY|BATTERY_ERROR), osFlagsWaitAny, osWaitForever);
+    	if(pin_flag == BATTERY_ERROR){
+    		break;
     	}
+    	if(pin_flag == BATTERY){
+            Bat_Read_Data_With_Retry(INA226_ADDR, INA226_Bus_Voltage, bus_buffer, 2);
+            int16_t bus_raw = (int16_t)((bus_buffer[0] << 8) | bus_buffer[1]);
+            battery_voltage = (float)bus_raw * 0.00125f;
 
+            if(battery_voltage < 3.5) {
+            	osThreadFlagsSet(Motor_Thread, LANDING); // LANDING
+            	break;
+            }
+    	}
     }
+    osThreadTerminate(osThreadGetId()); // Tự xóa chính mình
 }
 /* USER CODE END Application */
 

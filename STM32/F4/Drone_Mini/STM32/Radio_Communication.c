@@ -23,8 +23,9 @@ void USART_Configuration(void){
 	USART6->CR1 &= ~(1 << 13);
 	USART6->BRR = (5 << 4)|(11 << 0); // 921600
 	USART6->CR1 |= (1 << 2)|(1 << 3)|(1 << 5)|(1 << 13);
-	NVIC_SetPriority(USART6_IRQn, 5);
+
 	NVIC->ISER[2] |= (1 << 7);
+	NVIC->IP[71] = (uint8_t)(6 << 4);
 }
 
 void USART6_Send_Char(char c){
@@ -37,21 +38,47 @@ void USART6_Send_String(char *s){
 		USART6_Send_Char(*s++);
 	}
 }
-
-int converted(char *buffer){
+volatile int duty = 0;
+int PWM_Converted(char *buffer){
 	char check[11] = {'0','1','2','3','4','5','6','7','8','9'};
-	char temp[6];
+	char temp[4]; // max = 100% + NULL
 	int k = 0;
-	for(int i = 0; i < 5; i++){
+	for(int i = 0; i < strlen(buffer); i++){
 		for(int j = 0; j < 10; j++){
 			if(buffer[i] == check[j]){
 				temp[k++] = buffer[i];
 				break;
 			}
+			if(k >= 3) break;
 		}
-	if(buffer[i] == '\0') break;
+		if(buffer[i] == '\0') break;
     }
-	return atoi(temp); // convert char to integer
+	int val_return;
+	duty = atoi(temp);
+	if(duty > 90){
+		val_return = 3024; // 90% - pwm
+	}
+	else {
+		val_return = (3559*duty)/100;
+	}
+	return val_return;
+}
+
+int Atoi_Converted(char *buffer){
+	char check[11] = {'0','1','2','3','4','5','6','7','8','9'};
+	char temp[2]; // max = local + NULL
+	int k = 0;
+	for(int i = 0; i < strlen(buffer); i++){
+		for(int j = 0; j < 10; j++){
+			if(buffer[i] == check[j]){
+				temp[k++] = buffer[i];
+				break;
+			}
+			if(k > 2) break;
+		}
+		if(buffer[i] == '\0') break;
+    }
+	return atoi(temp);
 }
 
 extern osThreadId_t Radio_Thread;
