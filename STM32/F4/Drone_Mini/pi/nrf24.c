@@ -1,4 +1,5 @@
 #include "nrf24.h"
+#include <zmq.h>
 
 sem_t sem_tx_request;
 sem_t sem_rx_complete;
@@ -375,61 +376,168 @@ void* RF_Gateway_Task(void *arg) {
     return NULL;
 }
 
+#define MODE_MANUAL 1
+#define MODE_AUTO   2
+int system_mode = MODE_MANUAL;
+int robot_x = 0, robot_y = 0;
+
 void* LAN_Network_Task(void* arg) {
     (void)arg; 
+
+    // 1. Khởi tạo ZeroMQ
+    void *context = zmq_ctx_new();
+    void *subscriber = zmq_socket(context, ZMQ_SUB);
+    zmq_connect(subscriber, "tcp://192.168.10.5:5555");
+    zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "robot1", 6);
+    
     char input_buf[100];
+    char zmq_buf[256];
+    char topic[32];
+    int selected_drone = 1; // Mặc định điều khiển Drone 1 ở Manual
 
     printf("\n=========================================================\n");
-    printf("[LAN_TASK] CHẾ ĐỘ NHẬP LỆNH BÀN PHÍM \n");
-    printf("=========================================================\n");
+    printf("[LAN_TASK] HỆ THỐNG KHỞI CHẠY: CHẾ ĐỘ 1 - MANUAL (BÀN PHÍM) \n");
 
     while(1) {
-        memcpy(target_drone_addr, drone_addresses[2], 5);
+        // NHÁNH 1: CHẾ ĐỘ MANUAL
+        if (system_mode == MODE_MANUAL) {
+            printf("\n[MANUAL - DRONE %d] Nhập lệnh: ", selected_drone);
+            fflush(stdout);
+            
+            if (fgets(input_buf, sizeof(input_buf), stdin) == NULL) 
+                continue;
+            input_buf[strcspn(input_buf, "\n")] = '\0';
 
+            if (strlen(input_buf) == 0) continue;
 
-        // 2. Chờ người dùng nhập nội dung lệnh từ bàn phím
-        printf("\n[LAN_TASK] Nhập lệnh gửi DRONE : ");
-        fflush(stdout);
+            // Lệnh chuyển trạng thái sang AUTO
+            if (strcmp(input_buf, "auto") == 0) {
+                system_mode = MODE_AUTO;
+                printf("\n[HỆ THỐNG] >>> CHUYỂN SANG CHẾ ĐỘ 2: AUTO  <<<\n");
+                printf("Mẹo bảo hiểm: Gõ 'manual' hoặc 'land' bất cứ lúc nào để ngắt khẩn cấp!\n");
+                continue;
+            }
+
+            // Các lệnh chọn nhanh cấu hình địa chỉ Drone mục tiêu
+            if (strcmp(input_buf, "drone1") == 0) {
+                selected_drone = 1;
+                memcpy(target_drone_addr, drone_addresses[0], 5);
+                printf("[HỆ THỐNG] Đã chuyển mục tiêu sang điều khiển: DRONE 1 (0x%02X)\n", target_drone_addr[0]);
+                continue;
+            }
+            if (strcmp(input_buf, "drone2") == 0) {
+                selected_drone = 2;
+                memcpy(target_drone_addr, drone_addresses[1], 5);
+                printf("[HỆ THỐNG] Đã chuyển mục tiêu sang điều khiển: DRONE 2 (0x%02X)\n", target_drone_addr[0]);
+                continue;
+            }
+            if (strcmp(input_buf, "drone3") == 0) {
+                selected_drone = 3;
+                memcpy(target_drone_addr, drone_addresses[2], 5);
+                printf("[HỆ THỐNG] Đã chuyển mục tiêu sang điều khiển: DRONE 3 (0x%02X)\n", target_drone_addr[0]);
+                continue;
+            }
+            if (strcmp(input_buf, "drone4") == 0) {
+                selected_drone = 4;
+                memcpy(target_drone_addr, drone_addresses[3], 5);
+                printf("[HỆ THỐNG] Đã chuyển mục tiêu sang điều khiển: DRONE 4 (0x%02X)\n", target_drone_addr[0]);
+                continue;
+            }
+            if (strcmp(input_buf, "drone5") == 0) {
+                selected_drone = 5;
+                memcpy(target_drone_addr, drone_addresses[4], 5);
+                printf("[HỆ THỐNG] Đã chuyển mục tiêu sang điều khiển: DRONE 5 (0x%02X)\n", target_drone_addr[0]);
+                continue;
+            }
+
+            // Đóng gói lệnh thủ công bình thường (LAND, TAKEOFF, v.v...) gửi đi
+            strncpy(global_cmd, input_buf, sizeof(global_cmd) - 1);
+            global_cmd[sizeof(global_cmd) - 1] = '\0';
+
+            printf("\n---------------------------------------------------------");
+            printf("\n[MANUAL] Đang phát lệnh '%s' tới DRONE %d...\n", global_cmd, selected_drone);
+            
+            sem_post(&sem_tx_request); // Đánh thức luồng RF bắn sóng nRF24L01
+
+            // Treo luồng chờ phản hồi ACK từ Drone mục tiêu (Timeout 1 giây)
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += 1; 
+
+            if (sem_timedwait(&sem_rx_complete, &ts) == 0) {
+                printf("[MANUAL] -> THÀNH CÔNG: Nhận phản hồi 'DONE' từ Drone %d.\n", selected_drone);
+            } else {
+                printf("[MANUAL] -> TIMEOUT: Không thấy Drone %d báo cáo.\n", selected_drone);
+            }
+            printf("---------------------------------------------------------\n");
+        }
         
-        // Đọc chuỗi ký tự từ bàn phím
-        if (fgets(input_buf, sizeof(input_buf), stdin) == NULL) {
-            continue;
+        // ====================================================================
+        // NHÁNH 2: CHẾ ĐỘ AUTO (ĐỌC MẠNG LAN) + PHANH KHẨN CẤP BÀN PHÍM
+        // ====================================================================
+        else if (system_mode == MODE_AUTO) {
+            // Mặc định ở chế độ tự động, ta sẽ cấu hình địa chỉ bắn cho nhóm drone tự động
+            // Khúc này bạn có thể map cứng drone nào chạy tự động tùy ý bạn, ví dụ:
+            memcpy(target_drone_addr, drone_addresses[2], 5); 
+
+            // ⚡ CƠ CHẾ KHÔNG CHẶN (ZMQ_DONTWAIT): Hứng gói tin nếu có, nếu không có lướt qua luôn
+            int bytes_received = zmq_recv(subscriber, zmq_buf, sizeof(zmq_buf) - 1, ZMQ_DONTWAIT);
+            
+            if (bytes_received > 0) {
+                zmq_buf[bytes_received] = '\0';
+                
+                int dummy_z; // Biến tạm để nuốt giá trị trục Z từ Pi 5 truyền sang để tránh lỗi hàm sscanf
+                // Tách chuỗi thô: Chỉ lấy X và Y, loại bỏ hoàn toàn việc tính toán Z
+                sscanf(zmq_buf, "%s %d %d %d", topic, &robot_x, &robot_y, &dummy_z);
+                
+                // Đóng gói chuỗi điều khiển tự động chỉ chứa 2 trục X, Y
+                snprintf(global_cmd, sizeof(global_cmd), "GOTO %d %d", robot_x, robot_y);
+                
+                printf("[AUTO] Khớp ảnh Pi 5: X=%d, Y=%d -> Lệnh phát: '%s'\n", robot_x, robot_y, global_cmd);
+                
+                // Kích luồng nRF24L01 đẩy sóng đi thời gian thực
+                sem_post(&sem_tx_request);
+            }
+
+            // ⚡ CƠ CHẾ NÊU TRÊN GIÚP GIẢI PHÓNG LUỒNG: Kiểm tra xem người dùng có gõ phím ngắt khẩn cấp không?
+            // Sử dụng một hàm kiểm tra bộ đệm bàn phím không chặn nhẹ nhàng bằng tiếng C
+            struct timeval tv = {0, 0}; // Không đợi (Timeout = 0)
+            fd_set fds;
+            FD_ZERO(&fds);
+            FD_SET(STDIN_FILENO, &fds);
+            
+            select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+            
+            // Nếu phát hiện có tín hiệu gõ phím từ bàn phím khi đang chạy AUTO!
+            if (FD_ISSET(STDIN_FILENO, &fds)) {
+                if (fgets(input_buf, sizeof(input_buf), stdin) != NULL) {
+                    input_buf[strcspn(input_buf, "\n")] = '\0';
+                    
+                    // KỊCH BẢN 1: Gõ 'manual' -> Trả lại quyền điều khiển thủ công
+                    if (strcmp(input_buf, "manual") == 0) {
+                        system_mode = MODE_MANUAL;
+                        printf("\n[HỆ THỐNG] <<< ĐÃ NGẮT AUTO -> TRẢ VỀ CHẾ ĐỘ MANUAL >>>\n");
+                    }
+                    // KỊCH BẢN 2: Drone gặp sự cố, gõ lệnh khẩn cấp như 'land' hoặc 'stop'
+                    else if (strcmp(input_buf, "land") == 0 || strcmp(input_buf, "LAND") == 0) {
+                        system_mode = MODE_MANUAL; // Ép về manual ngay lập tức
+                        
+                        strncpy(global_cmd, "LAND", sizeof(global_cmd) - 1);
+                        global_cmd[sizeof(global_cmd) - 1] = '\0';
+                        
+                        printf("\n[HẠ CÁNH KHẨN CẤP] Ép ngắt Auto! Bắn lệnh 'LAND' cứu drone ngay lập tức!\n");
+                        sem_post(&sem_tx_request); // Ưu tiên phát lệnh cứu hộ ngay
+                    }
+                }
+            }
+            
+            // Tránh quá tải CPU cho vòng lặp không chặn của chế độ Auto
+            usleep(10000); // Sleep 10ms (Chu kỳ quét phím & mạng là 100Hz, cực nhanh và nhạy)
         }
-
-        // Xóa ký tự xuống dòng '\n' do hàm fgets tự động nhận khi ấn Enter
-        input_buf[strcspn(input_buf, "\n")] = '\0';
-
-        // Nếu chỉ ấn Enter mà không gõ gì thì bỏ qua, bắt nhập lại
-        if (strlen(input_buf) == 0) {
-            printf("[LỖI] Lệnh không được để trống!\n");
-            continue;
-        }
-
-        // Copy lệnh vừa nhập vào biến toàn cục global_cmd để luồng RF bốc đi phát
-        strncpy(global_cmd, input_buf, sizeof(global_cmd) - 1);
-        global_cmd[sizeof(global_cmd) - 1] = '\0'; // Bảo hiểm kết thúc chuỗi
-
-        printf("\n---------------------------------------------------------");
-        printf("\n[LAN_TASK] Đã nhận lệnh bàn phím: '%s' -> Đang gửi cho DRONE (0x%02X)\n", 
-                global_cmd, target_drone_addr[0]);
-
-        // 3. Đánh thức luồng RF_Gateway_Task dậy để đẩy sóng đi
-        printf("[LAN_TASK] Bắn tín hiệu (sem_post), kích hoạt RF_TASK thực thi...\n");
-        sem_post(&sem_tx_request);
-
-        // 4. Treo luồng chờ phản hồi ngược lại từ Drone 1 (Timeout tối đa 3 giây)
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += 1; 
-
-        printf("[LAN_TASK] Đang treo luồng chờ xác nhận 'DONE' từ Drone 1...\n");
-        if (sem_timedwait(&sem_rx_complete, &ts) == 0) {
-            printf("[LAN_TASK -> SUCCESS] Quá ngon! Nhận được xác nhận 'DONE' từ Drone 1.\n");
-        } else {
-            printf("[LAN_TASK -> TIMEOUT] Quá hạn 3 giây! Không thấy Drone báo cáo.\n");
-        }
-        printf("---------------------------------------------------------\n");
     }
+
+    zmq_close(subscriber);
+    zmq_ctx_destroy(context);
     return NULL;
 }
 
@@ -546,7 +654,6 @@ int Initialized(void){
     return 0;
 }
 
-
 int main(void) {
     if (Initialized() < 0) {
         printf("[LỖI] Khởi tạo phần cứng thất bại!\n");
@@ -557,12 +664,12 @@ int main(void) {
     sem_init(&sem_tx_request, 0, 0);
     sem_init(&sem_rx_complete, 0, 0);
 
-    // // Kích hoạt hệ điều hành Linux chạy đa luồng song song
+    // Kích hoạt hệ điều hành Linux chạy đa luồng song song
 
     pthread_create(&rf_thread_id, NULL, RF_Gateway_Task, NULL);
     pthread_create(&lan_thread_id, NULL, LAN_Network_Task, NULL);
 
-    // // Neo giữ luồng chính không giải phóng bộ nhớ hệ thống
+    // Neo giữ luồng chính không giải phóng bộ nhớ hệ thống
 
     pthread_join(rf_thread_id, NULL); // Transmit
     pthread_join(lan_thread_id, NULL);
