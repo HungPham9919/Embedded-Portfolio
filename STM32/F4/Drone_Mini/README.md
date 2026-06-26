@@ -12,3 +12,5 @@
  # Thực tế:
 <img width="1177" height="739" alt="image" src="https://github.com/user-attachments/assets/7b2ce108-d5aa-4b0d-92c6-096599ca1d7d" />
 <img width="1118" height="842" alt="image" src="https://github.com/user-attachments/assets/ad1d611f-ece3-4b43-b17e-e5fd5bacf819" />
+
+
