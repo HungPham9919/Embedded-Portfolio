@@ -68,14 +68,14 @@ osThreadId_t Error_Thread;
 const osThreadAttr_t ErrorTask_attributes = {
 		.name = "Error_Task",
 		.stack_size = 128 * 4,
-		.priority = (osPriority_t) osPriorityRealtime1,
+		.priority = (osPriority_t) osPriorityHigh2,
 };
 
 osThreadId_t bmi088_thread;
 const osThreadAttr_t bmi088task_attributes = {
 		.name = "bmi088_task",
 		.stack_size = 1024 * 4,
-		.priority = (osPriority_t) osPriorityRealtime,
+		.priority = (osPriority_t) osPriorityRealtime1,
 };
 
 osMutexId_t bmi088_mutex;
@@ -88,7 +88,7 @@ osThreadId_t Motor_Thread;
 const osThreadAttr_t motor_attributes = {
 	.name = "Motor",
 	.stack_size = 128 * 4,
-	.priority = (osPriority_t)osPriorityNormal,
+	.priority = (osPriority_t)osPriorityHigh1,
 };
 
 osThreadId_t Radio_Thread;
@@ -184,11 +184,12 @@ void MX_FREERTOS_Init(void) {
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
-volatile int count = 0, count1 = 0;
+volatile int count = 0, count1 = 0,error1 = 0;
+volatile uint8_t is_i2c1_available = 1;
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-	osDelay(50);
+	osDelay(100);
 	while(1) {
 	  if(Check_Address_I2C3() == 1) {
 	     break;
@@ -205,31 +206,40 @@ void StartDefaultTask(void *argument)
 
 	while(1) {
 	  if(Check_Address_I2C1() == 1) {
+		  is_i2c1_available = 1;
 	     break;
 	  }
 	  else {
 	     I2C1_Broken_Task_Handle = osThreadGetId();
 	     count++;
 	     osThreadFlagsSet(Error_Thread, REQ_RESET_I2C1);
-	     osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, osWaitForever);
-	     osDelay(10);
+	     osThreadFlagsWait(ERROR_FIXED, osFlagsWaitAny, 20); // error
+		  is_i2c1_available = 0;
+
 	     if(count > 50) {
 	    	 osThreadFlagsSet(BatteryReadTaskHandle, BATTERY_ERROR);
 	    	 break;
 	     }
+	     osDelay(10);
 	  }
 	}
 
 	EXTI->IMR &= ~(1 << 13) &~(1 << 14); // off external interrupt
+
+	osEventFlagsWait(xStartupEventFlags,BMI_BEGIN,osFlagsWaitAny, osWaitForever);
+
 	BMI088_Initialize();
 	osDelay(100);
 
 	BMI088_Calib();
 	osDelay(50);
 
+	error1++;
 	osEventFlagsSet(xStartupEventFlags, IMU_INITIALIZED_BIT);
 
-	Bat_initialized(); // Pin
+	if (is_i2c1_available == 1) {
+		Bat_initialized();
+	}
 
 	osEventFlagsWait(xStartupEventFlags, ALL_READY_BIT, osFlagsWaitAll, osWaitForever);
 
@@ -245,6 +255,7 @@ void StartDefaultTask(void *argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+volatile int i2c1_error = 0, i2c3_error = 0;
 void ERROR_TASK(void *argument){
 	for(;;){
 		uint32_t error_flags = osThreadFlagsWait(REQ_RESET_I2C1 | REQ_RESET_I2C3, osFlagsWaitAny, osWaitForever);
@@ -252,7 +263,7 @@ void ERROR_TASK(void *argument){
 			I2C1_ClearBus();
 			I2C1_RST_APB();
 			I2C1_Initialized();
-
+			i2c1_error++;
 			if(I2C1_Broken_Task_Handle != NULL){
 			   osThreadFlagsSet(I2C1_Broken_Task_Handle, ERROR_FIXED);
 			}
@@ -262,7 +273,7 @@ void ERROR_TASK(void *argument){
 			I2C3_ClearBus();
 			I2C3_RST_APB();
 			I2C3_Initialized();
-
+			i2c3_error++;
 			if(I2C3_Broken_Task_Handle != NULL){
 			   osThreadFlagsSet(I2C3_Broken_Task_Handle, ERROR_FIXED);
 			}
@@ -271,7 +282,7 @@ void ERROR_TASK(void *argument){
 }
 
 volatile int bmi_count = 0;
-int desire_roll = 0, desire_pitch = 0, desire_yaw = 0;
+float desire_roll = 0, desire_pitch = 0, desire_yaw = 0;
 
 void START_BMI088_TASK(void *argument){
 	osEventFlagsClear(xStartupEventFlags, ALL_READY_BIT); // clear all bit -> event
@@ -293,7 +304,7 @@ void START_BMI088_TASK(void *argument){
 	drone_angle.Pitch_angle = 0.0f;
 	drone_angle.Yaw_angle = 0.0f;
 
-	GPIOC->BSRR = (1 << 0); // oke
+	GPIOC->BSRR = (1 << 16); // oke
 
 	osThreadFlagsWait(0x0001, osFlagsWaitAny, 0);
 	EXTI->PR = (1 << 13) | (1 << 14);
@@ -303,7 +314,6 @@ void START_BMI088_TASK(void *argument){
 		if(flag == 0x0001){
 			if(osMutexAcquire(bmi088_mutex, 2) == osOK){
 				BMI088_Read_Data_DMA_With_Retry(GYRO_ADDR, GYRO_Data, gyro_data, 6);
-				while(I2C3->SR2 & (1 << 1));
 				BMI088_Read_Data_DMA_With_Retry(ACC_ADDR, ACC_Data, acc_data, 6);
 				osMutexRelease(bmi088_mutex);
 			}
@@ -325,8 +335,9 @@ void RADIO_TASK(void *argument){
 		osStatus_t status = osMessageQueueGet(radioQueueHandle, local_radio_data, NULL, osWaitForever);
 		if(status == osOK){
 			if(strstr(local_radio_data, "START") != NULL){
-				Radio_count++;
 				USART6_Send_String("OK");
+				osEventFlagsSet(xStartupEventFlags, BMI_BEGIN); // start to config
+				Radio_count++;
 				The_First_State(); // MOTOR
 			}
 			else if(strstr(local_radio_data, "TAKEOFF") != NULL){ 			// Bay len
@@ -342,16 +353,11 @@ void RADIO_TASK(void *argument){
 
 			else if(strstr(local_radio_data, "BASE") != NULL){
 				base_compare = PWM_Converted(local_radio_data);
-				if(base_compare > base_pwm){ 	// Increase high || 30%
+				if(base_compare > base_pwm){
 					Landing_Takeoff_State = 2; // TAKEOFF
 					TIM5->CR1 |= (1 << 0); // on timer
 					TIM5->CNT = 0;
 				}
-//				else {
-//					Landing_Takeoff_State = 1; // decrease high
-//					TIM5->CR1 |= (1 << 0); // on timer
-//					TIM5->CNT = 0;
-//				}
 
 				USART6_Send_String("OK");
 			}
@@ -388,7 +394,6 @@ volatile int motor_count = 0;
 
 void MOTOR_STATE_TASK(void *argument){
 	osThreadFlagsWait(MOTOR_ALL_STATUS, osFlagsWaitAny, 0); // clear flag
-	The_First_State();
 	for(;;){
 		uint32_t Motor_Flag = osThreadFlagsWait(MOTOR_ALL_STATUS,osFlagsWaitAny, osWaitForever);
 
@@ -402,10 +407,11 @@ void MOTOR_STATE_TASK(void *argument){
 				TIM5->CR1 &= ~(1 << 0);
 				TIM5->CNT = 0;
 				Stop_Motor();
+				base_compare = 0;
 				break;
 			case LANDING:
-				if(base_pwm > 3){
-					base_pwm -= 3; // 1s -> 125 times
+				if(base_pwm > 200){
+					base_pwm -= 8; // 1s -> 125 times
 				}
 				else {
 					// change state of drone
@@ -413,22 +419,24 @@ void MOTOR_STATE_TASK(void *argument){
 					base_compare = 0; // RESET
 					TIM5->CR1 &= ~(1 << 0);
 					TIM5->CNT = 0;
+
 					Stop_Motor(); // Đã hạ cánh xong
 				}
 				break;
 			case FLY_FROM_BASE:
-				if(base_pwm < 1008 || base_pwm < base_compare){ // 30%
-					base_pwm += 3;
+				if(base_pwm < 840 || base_pwm < base_compare){
+					base_pwm += 25;
 				}
+
 				else {
 					TIM5->CR1 &= ~(1 << 0);
 					TIM5->CNT = 0;
 
-					if (base_pwm >= base_compare && base_compare > 1008) {
+					if (base_pwm >= base_compare && base_compare > 840) {
 					     base_pwm = base_compare;
 					 }
 					else {
-					   base_pwm = 1008;
+					   base_pwm = 840;
 					}
 				}
 				break;
@@ -452,10 +460,10 @@ void BATTERY_READ(void *argument){
             int16_t bus_raw = (int16_t)((bus_buffer[0] << 8) | bus_buffer[1]);
             battery_voltage = (float)bus_raw * 0.00125f;
 
-            if(battery_voltage < 3.5) {
-            	osThreadFlagsSet(Motor_Thread, LANDING); // LANDING
-            	break;
-            }
+//            if(battery_voltage < 3.4) {
+//            	osThreadFlagsSet(Motor_Thread, LANDING); // LANDING
+//            	break;
+//            }
     	}
     }
     osThreadTerminate(osThreadGetId()); // Tự xóa chính mình

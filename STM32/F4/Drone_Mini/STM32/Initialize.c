@@ -58,8 +58,8 @@ void Init_The_Config_Of_Drone(void){
 
 	//84 MHz
 
-	TIM2->ARR = 3559;
-	TIM2->PSC = 0; // F =  84MHZ/(ARR + 1)(PSC + 1); = 25KHZ
+	TIM2->ARR = 1679;
+	TIM2->PSC = 0; // F =  84MHZ/(ARR + 1)(PSC + 1); = 50KHZ
 	TIM2->CNT = 0;
 	TIM2->DIER = 0;
 	TIM2->CCER &= ~(1 << 0) &~(1 << 4) &~(1 << 12);
@@ -79,7 +79,7 @@ void Init_The_Config_Of_Drone(void){
 	TIM2->CR1 |= (1 << 0);
 
 	// TIMER 4 - 84MHz
-	TIM4->ARR = 3559;
+	TIM4->ARR = 1679;
 	TIM4->PSC = 0;
 	TIM4->CNT = 0;
 
@@ -181,6 +181,14 @@ void I2C1_RST_APB(void){
 void I2C1_Initialized(void){
 	RCC->APB1ENR |= (1 << 21); // ENABLE I2C1 - 42MHz
 	osDelay(2);
+	RCC->AHB1ENR |= (1 << 1);
+	osDelay(2);
+
+	I2C1->CR1 |= (1 << 15);
+    osDelay(2);
+	I2C1->CR1 &= ~(1 << 15);
+    osDelay(2);
+
 	// PB6-SCL PB7-SDA
 	GPIOB->MODER &= ~(3 << 12) &~(3 << 14);
 	GPIOB->MODER |= (2 << 12)|(2 << 14);
@@ -299,8 +307,6 @@ void I2C3_Initialized(void){
 
 	I2C3->CR1 &= ~(1 << 0);
 	I2C3->CR2 = 42;
-//	I2C3->OAR1 = 0;
-//	I2C3->OAR2 = 0;
 	I2C3->CCR = 0;
 	I2C3->CCR |= (1 << 15)| 35;
 	I2C3->TRISE = 14;
@@ -362,7 +368,7 @@ int Check_Address_I2C3(void){
     return (nos == 2) ? 1 : 0;
 }
 
-int Check_Address_I2C1(void){ // HAVE 2 SENSORS
+int Check_Address_I2C1(void){
 	addr.sensor1 = 0;
 	addr.sensor2 = 0;
 
@@ -371,8 +377,7 @@ int Check_Address_I2C1(void){ // HAVE 2 SENSORS
 	    uint32_t timeout = 10000;
 		while((I2C1->SR2 & (1 << 1)) && --timeout);
 		if(timeout == 0) {
-			I2C1->CR1 |= (1 << 9);
-			I2C1->CR1 &= ~(1 << 0); // off PE
+			I2C1->CR1 |= (1 << 9); // STOP
 			return 0;
 		}
 
@@ -380,8 +385,7 @@ int Check_Address_I2C1(void){ // HAVE 2 SENSORS
 		timeout = 10000;
 		while(!(I2C1->SR1 & (1 << 0)) && --timeout); // WAIT FOR START-BIT
 		if(timeout == 0) {
-			I2C1->CR1 |= (1 << 9);
-			I2C1->CR1 &= ~(1 << 0); // off PE
+			I2C1->CR1 |= (1 << 9); // STOP
 			return 0;
 		}
 
@@ -389,8 +393,7 @@ int Check_Address_I2C1(void){ // HAVE 2 SENSORS
 		timeout = 10000;
 		while(!(I2C1->SR1 & ((1 << 1)|(1 << 10))) && --timeout);
 		if(timeout == 0) {
-			I2C1->CR1 |= (1 << 9);
-			I2C1->CR1 &= ~(1 << 0); // off PE
+			I2C1->CR1 |= (1 << 9); // STOP
 			return 0;
 		}
 		if(I2C1->SR1 & (1 << 1)){
@@ -454,6 +457,8 @@ void DMA_I2C3_Stream(void){
 extern osThreadId_t bmi088_thread;
 extern osMutexId_t bmi088_mutex;
 
+volatile int bmi088_exti = 0;
+
 void EXTI15_10_IRQHandler(void){
 	if(EXTI->PR & (1 << 13)){ // acc
 		EXTI->PR = (1 << 13);
@@ -461,6 +466,7 @@ void EXTI15_10_IRQHandler(void){
 	if(EXTI->PR & (1 << 14)){
 		EXTI->PR = (1 << 14);
 		if(bmi088_thread != NULL){
+			bmi088_exti++;
 			osThreadFlagsSet(bmi088_thread, 0x0001);
 		}
 	}
@@ -474,7 +480,7 @@ void TIM3_IRQHandler(void){
 		// clear flag
 		TIM3->SR &= ~(1 << 0);
 		time3_count++;
-		osThreadFlagsSet(BatteryReadTaskHandle, BATTERY);
+//		osThreadFlagsSet(BatteryReadTaskHandle, BATTERY);
 	}
 }
 
@@ -511,13 +517,13 @@ void The_First_State(void){
 			case 0: // M1
 				TIM2->CCR1 = 0;
 				TIM2->CCR2 = 0;
-				TIM2->CCR4 = 300;
-				TIM4->CCR4 = 0;
+				TIM2->CCR4 = 0;
+				TIM4->CCR4 = 100;
 			    osDelay(100);
 				break;
 			case 1: // M2
-				TIM2->CCR1 = 0;
-				TIM2->CCR2 = 300;
+				TIM2->CCR1 = 100;
+				TIM2->CCR2 = 0;
 				TIM2->CCR4 = 0;
 				TIM4->CCR4 = 0;
 				osDelay(100);
@@ -525,13 +531,13 @@ void The_First_State(void){
 			case 2: // M3
 				TIM2->CCR1 = 0;
 				TIM2->CCR2 = 0;
-				TIM2->CCR4 = 0;
-				TIM4->CCR4 = 300;
+				TIM2->CCR4 = 100;
+				TIM4->CCR4 = 0;
 				osDelay(100);
 				break;
 			case 3:
-				TIM2->CCR1 = 300;
-				TIM2->CCR2 = 0;
+				TIM2->CCR1 = 0;
+				TIM2->CCR2 = 100;
 				TIM2->CCR4 = 0;
 				TIM4->CCR4 = 0;
 				osDelay(100);

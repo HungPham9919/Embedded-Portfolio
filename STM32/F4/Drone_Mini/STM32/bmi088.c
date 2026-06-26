@@ -8,6 +8,7 @@
 #include "Initialize.h"
 #include "cmsis_os.h"
 #include "main.h"
+#include "PWM_Control.h"
 
 struct Final_data final;
 Status_Of_BMI088 status;
@@ -425,24 +426,52 @@ void Configuration_Of_BMI088(void){
 
 void BMI088_Calib(void){
 	float sum_gx = 0 , sum_gy = 0,sum_gz = 0;
+	float sum_ax = 0, sum_ay = 0, sum_az = 0;
+
 	int16_t gx = 0,gy = 0,gz = 0;
+	int16_t ax = 0, ay = 0, az = 0;
+
 	uint8_t gyro[6] = {0};
-	for(int i = 0; i < 500; i++){
+	uint8_t accel_data[6] = {0};
+	for(int i = 0; i < 550; i++){
 		BMI088_Read_Data_With_Retry(GYRO_ADDR, GYRO_Data, gyro, sizeof(gyro));
-		gx = (gyro[1] << 8)|gyro[0];
-		gy = (gyro[3] << 8)|gyro[2];
-		gz = (gyro[5] << 8)|gyro[4];
+		BMI088_Read_Data_With_Retry(ACC_ADDR, ACC_Data, accel_data, sizeof(accel_data));
+		if(i > 49){
+			gx = (gyro[1] << 8)|gyro[0];
+			gy = (gyro[3] << 8)|gyro[2];
+			gz = (gyro[5] << 8)|gyro[4];
 
-		sum_gx += gx;
-		sum_gy += gy;
-		sum_gz += gz;
+			sum_gx += gx;
+			sum_gy += gy;
+			sum_gz += gz;
 
+			ax = (accel_data[1] << 8) | accel_data[0];
+			ay = (accel_data[3] << 8) | accel_data[2];
+			az = (accel_data[5] << 8) | accel_data[4];
+
+			sum_ax += ax;
+			sum_ay += ay;
+			sum_az += az;
+		}
 		osDelay(5);
 	}
 
 	bmi088_offset.gyro_offset_x = (sum_gx/ 500);
 	bmi088_offset.gyro_offset_y = (sum_gy/ 500);
 	bmi088_offset.gyro_offset_z = (sum_gz/ 500);
+
+	bmi088_offset.acc_offset_x = (sum_ax / 500.0f);
+	bmi088_offset.acc_offset_y = (sum_ay / 500.0f);
+	bmi088_offset.acc_offset_z = (sum_az / 500.0f) + ACC_LSB_6G;
+
+//	roll_pid_rate.previous_measure  = 0.0f;
+//	pitch_pid_rate.previous_measure = 0.0f;
+//	yaw_pid_rate.previous_measure   = 0.0f;
+
+//	roll_pid.previous_measure  = drone_angle.Roll_angle;
+//	pitch_pid.previous_measure = drone_angle.Pitch_angle;
+//	yaw_pid.previous_measure   = drone_angle.Yaw_angle;
+
 }
 
 volatile int16_t ACC_X = 0, ACC_Y = 0, ACC_Z = 0;
@@ -458,9 +487,9 @@ void BMI088_Data(uint8_t *acc_data, uint8_t *gyro_data){
 	GYRO_Y = (int16_t)(gyro_data[3] << 8)|gyro_data[2];
 	GYRO_Z = (int16_t)((gyro_data[5] << 8)|gyro_data[4]);
 
-	final.ax = (float)(ACC_X/sens.acc_lsb);
-	final.ay = -(float)(ACC_Y/sens.acc_lsb);
-	final.az = -(float)(ACC_Z/sens.acc_lsb);
+	final.ax = (float)((ACC_X - bmi088_offset.acc_offset_x)/sens.acc_lsb);
+	final.ay = -(float)((ACC_Y - bmi088_offset.acc_offset_y)/sens.acc_lsb);
+	final.az = -(float)((ACC_Z - bmi088_offset.acc_offset_z)/sens.acc_lsb);
 
 	// inverse
 
@@ -468,7 +497,7 @@ void BMI088_Data(uint8_t *acc_data, uint8_t *gyro_data){
 	final.gy = -((float)(GYRO_Y - bmi088_offset.gyro_offset_y)/sens.gyro_lsb);
 	final.gz = -((float)((GYRO_Z - bmi088_offset.gyro_offset_z)/sens.gyro_lsb));
 
-	if(fabs(final.gz) < 0.1f) final.gz = 0;
+	if(fabs(final.gz) < 0.05f) final.gz = 0;
 }
 
 void Calculate_And_Filter_Angle(uint8_t *acc_data,uint8_t *gyro_data,float dt){

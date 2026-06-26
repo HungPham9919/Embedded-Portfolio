@@ -102,7 +102,7 @@ int main(void)
 	Init_The_Config_Of_Drone();
 	USART_Configuration();
 	DMA_I2C3_Stream();
-
+	GPIOC->BSRR = (1 << 0);
 
   /* USER CODE END 2 */
 
