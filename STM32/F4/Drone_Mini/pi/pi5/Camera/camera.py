@@ -1,39 +1,32 @@
 import cv2
 import threading
-import time
 
 class CameraThread(threading.Thread):
     def __init__(self, cam_idx, width, height, fps):
-        super().__init__()
+        super().__init__(daemon=True)
         self.cam_idx = cam_idx
-        self.width = width
-        self.height = height
+        self.size = (width, height)
         self.fps = fps
         self.frame = None
-        self.ret = False
-        self.running = True
+        self.lock = threading.Lock() # Bảo vệ dữ liệu frame
+        self.stop_event = threading.Event()
         
     def run(self):
-        # Khởi tạo camera với driver V4L2
-        cap = cv2.VideoCapture(self.cam_idx, cv2.CAP_V4L2)
-        
-        # Cấu hình phần cứng
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        cap = cv2.VideoCapture(self.cam_idx)
+        if not cap.isOpened():
+            print(f"❌ Camera {self.cam_idx} không khả dụng!")
+            return
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.size[0])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.size[1])
         cap.set(cv2.CAP_PROP_FPS, self.fps)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
-        print(f" Đã mở phần cứng Camera {self.cam_idx}")
-        
-        while self.running:
-            ret_clean, frame_clean = cap.read()
-            
-            if ret_clean and frame_clean is not None:
-                self.frame = frame_clean
-                self.ret = True
-                time.sleep(0.01)
-            else:
-                time.sleep(0.005)
-                
+
+        while not self.stop_event.is_set():
+            ret, frame = cap.read()
+            if ret:
+                with self.lock:
+                    self.frame = frame.copy()
         cap.release()
+
+    def stop(self):
+        self.stop_event.set()
