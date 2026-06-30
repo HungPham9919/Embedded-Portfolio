@@ -30,46 +30,44 @@ def listen_for_corners(sock, processor):
 
 def main():
     LAPTOP_IP = "192.168.1.41"
-    print("🚀 Khởi động hệ thống...")
-    
-    # 1. Khởi tạo Camera, Processor và Tracker
     cam_xy = CameraThread(cam_idx=0, width=1280, height=720, fps=30)
     proc = DataProcessor(width=1280, height=720)
-    tracker = DroneTracker() # Khởi tạo Tracker
+    tracker = DroneTracker() 
     cam_xy.start()
     
-    # 2. Khởi tạo Socket
     sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock_rec = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock_rec.bind(("0.0.0.0", 7777))
-    
     threading.Thread(target=listen_for_corners, args=(sock_rec, proc), daemon=True).start()
-    
-    print("✅ Hệ thống đã sẵn sàng phát sóng. Nhấn Ctrl+C để dừng.")
     
     try:
         while True:
             if cam_xy.frame is not None:
                 frame = cam_xy.frame.copy()
                 
-                # BƯỚC 1: Xử lý lưới (vẽ nền lưới)
+                # 1. Tracker xử lý (tìm drone và vẽ khung xanh lên frame)
+                drones_pos = tracker.process_camera_xy(frame)
+                
+                # 2. Processor vẽ lưới lên frame đã có khung xanh
                 processed_img = proc.process(frame)
                 
-                # BƯỚC 2: Định vị drone và vẽ lên hình
-                drones_pos = tracker.process_camera_xy(frame)
-                processed_img = tracker.draw_drones(processed_img, drones_pos)
+                # 3. Vẽ nhãn tên drone lên frame
+                final_img = tracker.draw_drones(processed_img, drones_pos)
                 
-                # Gửi tới Laptop
-                _, enc = cv2.imencode('.jpg', processed_img, [int(cv2.IMWRITE_JPEG_QUALITY), 30])
+                # 4. Gửi ảnh
+                _, enc = cv2.imencode('.jpg', final_img, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
                 sock_send.sendto(enc.tobytes(), (LAPTOP_IP, 9999))
             
             time.sleep(0.03)
-            
+
     except KeyboardInterrupt:
-        print("\n Đang dừng hệ thống...")
+        print("\n🛑 Người dùng đã dừng hệ thống.")
     finally:
+        print("🧹 Đang dọn dẹp tài nguyên...")
         cam_xy.stop()
         cam_xy.join()
+        sock_send.close()
+        sock_rec.close()
 
 if __name__ == "__main__":
     main()
