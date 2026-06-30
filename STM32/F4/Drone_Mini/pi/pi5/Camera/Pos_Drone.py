@@ -61,7 +61,6 @@ class DroneTracker:
         
         for name, (lower, upper) in self.colors_z.items():
             mask = cv2.inRange(hsv, np.array(lower), np.array(upper))
-            
             if name != "Hong":
                 mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
             
@@ -76,31 +75,36 @@ class DroneTracker:
                     max_area = area
                     best_cnt = cnt
             
-            # --- LOGIC XỬ LÝ ỔN ĐỊNH ---
+            # --- CẢI TIẾN: Bắt lại cực nhanh ---
             if best_cnt is not None:
                 x, y, w, h = cv2.boundingRect(best_cnt)
-                global_pos = (x + w//2 + x_offset, y + h//2 + y_offset)
+                current_pos = np.array([x + w//2 + x_offset, y + h//2 + y_offset])
                 
-                # Kiểm tra khoảng cách nhảy xa
-                if name in self.prev_pos_z and np.linalg.norm(np.array(global_pos) - np.array(self.prev_pos_z[name])) > 100:
-                    continue
+                # Làm mượt tọa độ bằng trung bình trượt (trọng số 0.7 cho vị trí cũ)
+                if name in self.prev_pos_z:
+                    new_pos = (0.3 * current_pos + 0.7 * np.array(self.prev_pos_z[name])).astype(int)
+                else:
+                    new_pos = current_pos
                 
-                self.prev_pos_z[name] = global_pos
-                self.lost_frames[name] = 0 # Reset bộ đếm
+                self.prev_pos_z[name] = tuple(new_pos)
+                self.lost_frames[name] = 0
             
-            # Nếu không tìm thấy nhưng còn trong bộ đệm
-            elif name in self.prev_pos_z and self.lost_frames[name] < self.max_lost_frames:
+            # Nếu không tìm thấy, vẫn trả về vị trí cuối cùng đã biết (giống hệt XY)
+            elif name in self.prev_pos_z:
                 self.lost_frames[name] += 1
-                global_pos = self.prev_pos_z[name] # Dùng vị trí cũ
-            else:
-                continue # Không tìm thấy và vượt quá bộ đệm
+            
+            # Vẽ nếu đã từng có vị trí
+            if name in self.prev_pos_z:
+                pos = self.prev_pos_z[name]
+                z_val = 720 - pos[1]
+                drones_z[name] = z_val
                 
-            # Vẽ kết quả
-            z_val = 720 - global_pos[1]
-            drones_z[name] = z_val
-            cv2.circle(frame, global_pos, 10, (0, 0, 255), -1)
-            cv2.putText(frame, f"{name}: {z_val}", (global_pos[0] + 15, global_pos[1]), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                # Màu đỏ đậm nếu đang detect thật, màu cam nếu đang dùng vị trí cũ (mất tín hiệu)
+                color = (0, 0, 255) if self.lost_frames[name] == 0 else (0, 165, 255)
+                cv2.circle(frame, pos, 10, color, -1)
+                cv2.putText(frame, f"{name}: {z_val}", (pos[0] + 15, pos[1]), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                            
         return drones_z
 
     def draw_drones(self, frame, drones_found):
