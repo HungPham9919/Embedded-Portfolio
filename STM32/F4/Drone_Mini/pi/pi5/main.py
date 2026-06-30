@@ -1,109 +1,75 @@
-import cv2
 import time
 import socket
+import cv2
 import threading
 from Camera.camera import CameraThread
 from Camera.Processing_data import DataProcessor
+# Nhập class mới từ file Pos_Drone.py (Giả sử tên file là Pos_Drone.py)
+from Camera.Pos_Drone import DroneTracker 
 
 def listen_for_corners(sock, processor):
-    """ Luồng chạy ngầm để nhận tọa độ click chuột gửi ngược từ Laptop về """
-    print("📥 Luồng UDP lắng nghe chuột đã được kích hoạt thành công...")
+    print("Luồng UDP lắng nghe chuột đã kích hoạt...")
     while True:
         try:
             data, addr = sock.recvfrom(1024)
             msg = data.decode('utf-8').strip()
-            
             if msg == "reset":
+                processor.matrix_inv = None
                 processor.clicked_pts = []
-                processor.matrix = None
-                print("🔄 Laptop yêu cầu reset góc. Vui lòng click chọn lại từ đầu!")
+                print(" Reset lưới tọa độ.")
             else:
-                try:
-                    # Nhận tọa độ dạng "x,y" từ Laptop
-                    x, y = map(int, msg.split(','))
-                    if len(processor.clicked_pts) < 4:
-                        processor.clicked_pts.append([x, y])
-                        print(f"📍 SERVER: Đã nhận & lưu góc {len(processor.clicked_pts)} từ {addr}: ({x}, {y})")
-                        
-                        if len(processor.clicked_pts) == 4:
-                            # Tính toán lại ma trận ngay lập tức khi đủ 4 điểm
-                            processor.update_matrix_from_pts()
-                except ValueError:
-                    print(f"⚠️ Định dạng tọa độ không hợp lệ: {msg}")
+                x, y = map(int, msg.split(','))
+                if len(processor.clicked_pts) < 4:
+                    processor.clicked_pts.append([x, y])
+                    print(f" Đã nhận góc {len(processor.clicked_pts)}: ({x}, {y})")
+                    if len(processor.clicked_pts) == 4:
+                        processor.set_corners(processor.clicked_pts)
         except Exception as e:
-            print(f"❌ Lỗi luồng nhận dữ liệu chuột: {e}")
+            print(f"⚠️ Lỗi nhận tọa độ: {e}")
             break
 
 def main():
-    # CẤU HÌNH ĐỊA CHỈ IP LAPTOP NHẬN ẢNH
-    LAPTOP_IP = "192.168.1.41" 
-    UDP_PORT_XY = 9999
-    UDP_PORT_Z = 8888
-    UDP_PORT_REC = 7777 # Cổng để Server mở ra lắng nghe tọa độ từ Laptop bắn về
+    LAPTOP_IP = "192.168.1.41"
+    print("🚀 Khởi động hệ thống...")
     
-    sock_xy = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock_z = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    
-    # Khởi tạo Socket lắng nghe phản hồi chuột từ Laptop (Bind đúng port 7777)
-    sock_rec = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock_rec.bind(("0.0.0.0", UDP_PORT_REC))
-    
-    processor = DataProcessor(width=1280, height=720)
-    
-    # Khởi động luồng phụ nhận dữ liệu chuột từ xa
-    thr = threading.Thread(target=listen_for_corners, args=(sock_rec, processor), daemon=True)
-    thr.start()
-    
+    # 1. Khởi tạo Camera, Processor và Tracker
     cam_xy = CameraThread(cam_idx=0, width=1280, height=720, fps=30)
-    cam_z = CameraThread(cam_idx=2, width=1024, height=576, fps=30)
-    
+    proc = DataProcessor(width=1280, height=720)
+    tracker = DroneTracker() # Khởi tạo Tracker
     cam_xy.start()
-    cam_z.start()
     
-    print(f"🚀 Hệ thống Headless chuẩn DATN đang hoạt động...")
-    print(f"📡 Đang bắn dữ liệu video về Laptop ({LAPTOP_IP})")
-    print(f"📥 Đồng thời mở cổng {UDP_PORT_REC} chờ nhận tọa độ chuột...")
+    # 2. Khởi tạo Socket
+    sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock_rec = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock_rec.bind(("0.0.0.0", 7777))
+    
+    threading.Thread(target=listen_for_corners, args=(sock_rec, proc), daemon=True).start()
+    
+    print("✅ Hệ thống đã sẵn sàng phát sóng. Nhấn Ctrl+C để dừng.")
     
     try:
         while True:
-            # Luồng 1: Kênh XY
-            if cam_xy.ret and cam_xy.frame is not None:
-                current_frame_xy = cam_xy.frame
-                cam_xy.ret = False 
-                                    
-                warped_frame, _ = processor.detect_coordinates(current_frame_xy)
+            if cam_xy.frame is not None:
+                frame = cam_xy.frame.copy()
                 
-                resized_xy = cv2.resize(warped_frame, (1280, 720))
-                ret1, encode_xy = cv2.imencode('.jpg', resized_xy, (int(cv2.IMWRITE_JPEG_QUALITY), 50))
-                if ret1:
-                    data_xy = encode_xy.tobytes()
-                    if len(data_xy) < 65507:
-                        sock_xy.sendto(data_xy, (LAPTOP_IP, UDP_PORT_XY))
-                            
-            # Luồng 2: Kênh Z
-            if cam_z.ret and cam_z.frame is not None:
-                current_frame_z = cam_z.frame
-                cam_z.ret = False 
+                # BƯỚC 1: Xử lý lưới (vẽ nền lưới)
+                processed_img = proc.process(frame)
                 
-                resized_z = cv2.resize(current_frame_z, (1024, 576))
-                ret2, encode_z = cv2.imencode('.jpg', resized_z, (int(cv2.IMWRITE_JPEG_QUALITY), 50))
-                if ret2:
-                    data_z = encode_z.tobytes()
-                    if len(data_z) < 65507:
-                        sock_z.sendto(data_z, (LAPTOP_IP, UDP_PORT_Z))
-                            
-            time.sleep(0.001)
-
+                # BƯỚC 2: Định vị drone và vẽ lên hình
+                drones_pos = tracker.process_camera_xy(frame)
+                processed_img = tracker.draw_drones(processed_img, drones_pos)
+                
+                # Gửi tới Laptop
+                _, enc = cv2.imencode('.jpg', processed_img, [int(cv2.IMWRITE_JPEG_QUALITY), 30])
+                sock_send.sendto(enc.tobytes(), (LAPTOP_IP, 9999))
+            
+            time.sleep(0.03)
+            
     except KeyboardInterrupt:
-        print("\n Đang tắt hệ thống...")
+        print("\n Đang dừng hệ thống...")
     finally:
-        cam_xy.running = False
-        cam_z.running = False
+        cam_xy.stop()
         cam_xy.join()
-        cam_z.join()
-        sock_xy.close()
-        sock_z.close()
-        sock_rec.close()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
