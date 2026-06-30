@@ -12,28 +12,36 @@ class DroneTracker:
         self.prev_pos = {} # Lưu vị trí cũ để làm mượt
 
     def process_camera_xy(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (7, 7), 0)
-        _, thresh = cv2.threshold(blurred, 80, 255, cv2.THRESH_BINARY_INV)
-        
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        drones_found = {}
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        drones_found = {}
 
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if 300 < area < 5000:
-                x, y, w, h = cv2.boundingRect(cnt)
-                roi = hsv[y:y+h, x:x+w]
-                
-                for name, (lower, upper) in self.colors.items():
-                    mask = cv2.inRange(roi, np.array(lower), np.array(upper))
-                    # Tăng ngưỡng countNonZero để loại bỏ nhiễu chớp nháy
-                    if cv2.countNonZero(mask) > 100: 
-                        drones_found[name] = (x + w//2, y + h//2)
-                        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                        break
+        # Duyệt qua từng màu
+        for name, (lower, upper) in self.colors.items():
+            mask = cv2.inRange(hsv, np.array(lower), np.array(upper))
+            
+            # Khử nhiễu mạnh hơn
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            best_cnt = None
+            max_area = 0
+            
+            # Chỉ chọn contour lớn nhất cho màu đó để tránh nhảy lung tung
+            for cnt in contours:
+                area = cv2.contourArea(cnt)
+                if area > 100 and area > max_area: # Ngưỡng 100 để bỏ nhiễu nhỏ
+                    max_area = area
+                    best_cnt = cnt
+            
+            if best_cnt is not None:
+                x, y, w, h = cv2.boundingRect(best_cnt)
+                drones_found[name] = (x + w//2, y + h//2)
+                # Vẽ khung
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                cv2.putText(frame, name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
         return drones_found
 
     def draw_drones(self, frame, drones_found):
