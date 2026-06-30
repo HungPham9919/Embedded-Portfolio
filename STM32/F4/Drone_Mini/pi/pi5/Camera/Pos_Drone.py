@@ -20,6 +20,8 @@ class DroneTracker:
 
         self.prev_pos = {} # Lưu vị trí cũ để làm mượt
         self.prev_pos_z = {}  # Tách riêng cho Z
+        self.lost_frames = {name: 0 for name in ["Cam", "Vang", "XanhLa", "Hong"]}
+        self.max_lost_frames = 5
 
     def process_camera_xy(self, frame):
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -52,7 +54,6 @@ class DroneTracker:
         return drones_found
     
     def process_camera_z(self, frame):  
-        # 1. Cắt vùng ROI
         y_offset, x_offset = 100, 100
         roi = frame[y_offset:600, x_offset:1100]
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
@@ -61,45 +62,45 @@ class DroneTracker:
         for name, (lower, upper) in self.colors_z.items():
             mask = cv2.inRange(hsv, np.array(lower), np.array(upper))
             
-            # Chỉ thực hiện morphology nếu KHÔNG phải màu Hồng (để giữ vật thể nhỏ)
-            if name == "Hong":
-                cv2.imwrite("debug_mask_hong.png", mask)
             if name != "Hong":
-                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-                mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+                mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
             
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             best_cnt = None
             max_area = 0
-            
             for cnt in contours:
                 area = cv2.contourArea(cnt)
-                if name == "Hong":
-                    print(f"DEBUG: Diện tích màu hồng đo được: {area}")
-                # NGƯỠNG LINH HOẠT: Màu hồng chỉ cần > 2 là đủ, màu khác cần > 20
                 min_area = 2 if name == "Hong" else 20
-                
-                if min_area < area < 500: 
-                    if area > max_area:
-                        max_area = area
-                        best_cnt = cnt
+                if min_area < area < 500 and area > max_area:
+                    max_area = area
+                    best_cnt = cnt
             
+            # --- LOGIC XỬ LÝ ỔN ĐỊNH ---
             if best_cnt is not None:
                 x, y, w, h = cv2.boundingRect(best_cnt)
-                local_pos = (x + w//2, y + h//2)
-                global_pos = (local_pos[0] + x_offset, local_pos[1] + y_offset)
-                if name in self.prev_pos_z:
-                    dist = np.linalg.norm(np.array(global_pos) - np.array(self.prev_pos_z[name]))
-                    if dist > 100: continue 
+                global_pos = (x + w//2 + x_offset, y + h//2 + y_offset)
+                
+                # Kiểm tra khoảng cách nhảy xa
+                if name in self.prev_pos_z and np.linalg.norm(np.array(global_pos) - np.array(self.prev_pos_z[name])) > 100:
+                    continue
                 
                 self.prev_pos_z[name] = global_pos
-                z_val = 720 - global_pos[1]
-                drones_z[name] = z_val
+                self.lost_frames[name] = 0 # Reset bộ đếm
+            
+            # Nếu không tìm thấy nhưng còn trong bộ đệm
+            elif name in self.prev_pos_z and self.lost_frames[name] < self.max_lost_frames:
+                self.lost_frames[name] += 1
+                global_pos = self.prev_pos_z[name] # Dùng vị trí cũ
+            else:
+                continue # Không tìm thấy và vượt quá bộ đệm
                 
-                cv2.circle(frame, global_pos, 10, (0, 0, 255), -1)
-                cv2.putText(frame, f"{name}: {z_val}", (global_pos[0] + 15, global_pos[1]), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            # Vẽ kết quả
+            z_val = 720 - global_pos[1]
+            drones_z[name] = z_val
+            cv2.circle(frame, global_pos, 10, (0, 0, 255), -1)
+            cv2.putText(frame, f"{name}: {z_val}", (global_pos[0] + 15, global_pos[1]), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
         return drones_z
 
     def draw_drones(self, frame, drones_found):
