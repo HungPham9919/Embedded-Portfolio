@@ -16,5 +16,5 @@
 # Dữ liệu đọc của drone
 https://youtu.be/ld5YKcJk6NY
 
-# Drone demo thất bại =)))
+# Bay thử nghiệm
 https://youtube.com/shorts/TVlnMwJKDt4
