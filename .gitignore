@@ -1,0 +1,14 @@
+# Ignore Zephyr core & modules
+zephyr/
+modules/
+tools/
+bootloader/
+.west/
+.cache/
+
+# Ignore build artifacts
+**/build/
+compile_commands.json
+
+# Ignore system files
+.DS_Store
