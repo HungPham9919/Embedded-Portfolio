@@ -1,0 +1,5 @@
+CompileFlags:
+  Add: [-target, arm-none-eabi]
+  Remove: 
+    - -mfp16-format=*
+    - -fno-reorder-functions

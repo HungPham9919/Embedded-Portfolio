@@ -1,0 +1,14 @@
+CompileFlags:
+  CompilationDatabase: "build"
+  Add:
+    - "-Wno-unknown-argument"
+  Remove:
+    - "-fno-printf-return-value"
+    - "-mfp16-format=ieee"
+    - "-fno-reorder-functions"
+    - "-fno-freestanding"
+    - "-mabi=*"
+
+Diagnostics:
+  Suppress:
+    - "drv_unknown_argument"

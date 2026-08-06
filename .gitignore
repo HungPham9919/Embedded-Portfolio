@@ -1,14 +1,10 @@
-# Ignore Zephyr core & modules
+# Chặn hoàn bộ nguồn Zephyr RTOS và file build rác
 zephyr/
+bootloader/
 modules/
 tools/
-bootloader/
 .west/
 .cache/
-
-# Ignore build artifacts
 **/build/
 compile_commands.json
-
-# Ignore system files
 .DS_Store
