@@ -8,8 +8,8 @@
 
 int main(void)
 {
-    // int ret = usb_enable(NULL);
-    // if(ret != 0) return 0;
+    int ret = usb_enable(NULL);
+    if(ret != 0) return 0;
 
     BUS_Init();
 

@@ -6,7 +6,7 @@
 #include "stdio.h"
 #include "nrf.h"
 #include "string.h"
-#include "Radio.h"
+#include "Radio/Radio.h"
 
 void USART_Initialize(uint8_t TX_pin, uint8_t RX_pin);
 void USART0_Send_Char(char c);

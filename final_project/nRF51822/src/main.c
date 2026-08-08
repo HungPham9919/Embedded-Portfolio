@@ -1,6 +1,6 @@
 #include "nrf51.h"
-#include "uart.h"
-#include "Radio.h"
+#include "UART/uart.h"
+#include "Radio/Radio.h"
 
 #define nRF51822_TX 8
 #define nRF51822_RX 9

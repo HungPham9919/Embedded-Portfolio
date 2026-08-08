@@ -47,6 +47,8 @@ void SPI_Config(int SPI_x, SPI_TypeDef *SPI, DMA_TypeDef DMA, DMA_Stream_TypeDef
     IRQ_CONNECT(4, 5, exti4_handler, NULL, 0);
 }
 
+// Doing something else
+
 void DMA_SPI_RX_Config(SPI_TypeDef *SPI, DMA_TypeDef DMA, DMA_Stream_TypeDef *RX_Stream, uint32_t RX_Channel, int irq_pos,int irq_pri,void (*isr_handler)(const void *)){
     RX_Stream->CR &= ~(1 << 0);
     DMA.LIFCR = 0x0F7D0F7D; 

@@ -8,7 +8,6 @@
 #include "PMW3901/pmw3901.h"
 #include "I2C_Addr_Scanner/Check_Address_I2C1.h"
 #include "I2C3_Process_Data/I2C3_Processing.h"
-#include "stm32f405xx.h"
 #include "zephyr/kernel.h"
 #include <stdbool.h>
 #include <sys/_stdint.h>
@@ -76,6 +75,10 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(5);
     }
     k_event_post(&Initial_State_events, HMC5883_Ready);
+    
+    // Vl53L1X
+
+
     // PMW3901
 
 

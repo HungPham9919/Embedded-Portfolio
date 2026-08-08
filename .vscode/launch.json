@@ -1,0 +1,65 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Drone Mini Ver2 (STM32F405)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "gdbPath": "/home/hung/zephyr-sdk-0.16.8/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
+            "executable": "${workspaceFolder}/final_project/Drone_Mini_Ver2/build/zephyr/zephyr.elf",
+            "cwd": "${workspaceFolder}/final_project/Drone_Mini_Ver2",
+            "device": "STM32F405RG",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32f4x.cfg"
+            ],
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 20
+            },
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none"
+        },
+        {
+            "name": "Debug Ground Station (STM32F411)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "gdbPath": "/home/hung/zephyr-sdk-0.16.8/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
+            "executable": "${workspaceFolder}/final_project/Ground_Station/build/zephyr/zephyr.elf",
+            "cwd": "${workspaceFolder}/final_project/Ground_Station",
+            "device": "STM32F411RE",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32f4x.cfg"
+            ],
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 20
+            },
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none"
+        },
+        {
+            "name": "nRF51822",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "gdbPath": "/home/hung/zephyr-sdk-0.16.8/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
+            "executable": "${workspaceFolder}/final_project/nRF51822/build/zephyr/zephyr.elf",
+            "cwd": "${workspaceFolder}/final_project/nRF51822",
+            "device": "nRF51822_xxAA",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/nrf51.cfg"
+            ],
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 20
+            },
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none"
+        }
+    ]
+}
