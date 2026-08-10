@@ -13,7 +13,7 @@
 #include <sys/_stdint.h>
 
 volatile int i2c1_error_count = 0, i2c3_error_count = 0; 
-volatile int bmi_error_init = 0, hmc_error_init = 0, pmw_error_init = 0,bmp_error_init = 0, ina_error_init = 0;
+volatile int bmi_error_init = 0, hmc_error_init = 0, pmw3901_error_init = 0,bmp_error_init = 0, ina_error_init = 0;
 K_EVENT_DEFINE(Initial_State_events);
 
 struct k_work i2c1_error_work;
@@ -56,7 +56,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     // BMI088
     while (1) {
         if(bmi_error_init > 10){
-            // REST MCU
+            // REST MCU - call radio
             break;
         }
         if(BMI088_Initialize() == 1 && BMI088_Calib() == 1) break;
@@ -78,9 +78,19 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     
     // Vl53L1X
 
-
+    
     // PMW3901
+    while (1) {
+        if(pmw3901_error_init > 10){
+            break;
+        }
+        optical_flow_sensor();
+        if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
 
+        }
+    }
+
+    pmw3901_init_registers();
 
     // INA226
     while(1){
@@ -169,6 +179,7 @@ void bmp280_work_handler(struct k_work *work){
     I2C1_Initialized();
     bmp_error_init++;
 }
+
 volatile int bmptest = 0;
 void BMP280_Task(void *p1, void *p2, void *p3){
     k_event_wait(&Initial_State_events, BMP280_Ready, false, K_FOREVER);
