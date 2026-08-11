@@ -1,4 +1,5 @@
 #include "pmw3901.h"
+#include "RTOS_Init.h"
 #include "stm32f405xx.h"
 #include "zephyr/irq.h"
 #include "zephyr/kernel.h"
@@ -40,7 +41,7 @@ static const uint8_t pmw3901_bitcraze_added[][2] = {
     {0x5A, 0x50},{0x40, 0x80},
 };
 
-void OP_Init(void) {
+void Optical_Flow_Init(void) {
     RCC->APB1ENR |= (1 << 14); // SPI2
     // 2. PB13 SCK || PB14 - MISO || PB15-MOSI
     GPIOB->MODER &= ~(3 << 26) &~(3 << 28) &~(3 << 30);
@@ -54,19 +55,7 @@ void OP_Init(void) {
     // 3. Cấu hình PB12 (CS) -> Output Push-Pull
     GPIOB->MODER &= ~(3 << 24);
     GPIOB->MODER |=  (1 << 24);
-    GPIOB->ODR   |=  (1 << 12); // CS High (De-assert)
-
-    // 4. Cấu hình PC8 (EXTI / MOT) -> Input Pull-up - Pheriperal has been enabled
-    GPIOC->MODER &= ~(3 << 16);
-    GPIOC->PUPDR &= ~(3 << 16);
-    GPIOC->PUPDR |=  (1 << 16); // Pull-up vì Active LOW
-
-    EXTI->FTSR |= (1 << 8);
-    EXTI->IMR |= (1 << 8);
-
-   
-
-
+    GPIOB->ODR |=  (1 << 12); // CS High (De-assert)
 
     // 5. Cấu hình SPI2 Controller
     // Master mode, Baudrate Prescaler = /32 hoặc /16 (Clock SPI < 2MHz cho an toàn lúc init)
@@ -80,13 +69,15 @@ void OP_Init(void) {
     irq_enable(15);
 }
 
+static const uint8_t dummy_tx = 0x00;
+
 void SPI2_DMA_Transfer(uint8_t *rx_buf, uint16_t size){
     DMA1_Stream3->CR &= ~(1 << 0);
     DMA1_Stream4->CR &= ~(1 << 0);
     while ((DMA1_Stream3->CR & (1 << 0)) || (DMA1_Stream4->CR & (1 << 0)));
 
     DMA1->LIFCR = (0x3D << 22);
-    DMA1->HISR = (0x3D << 0);
+    DMA1->HIFCR = (0x3D << 0);
 
     DMA1_Stream3->PAR = (uint32_t)&(SPI2->DR);
     DMA1_Stream3->M0AR = (uint32_t)rx_buf;
@@ -95,30 +86,32 @@ void SPI2_DMA_Transfer(uint8_t *rx_buf, uint16_t size){
     DMA1_Stream3->CR = (0 << 25)|(2 << 16)|(1 << 10)|(1 << 4);
 
     // TX
-    volatile uint8_t dummy = 0x00;
     DMA1_Stream4->PAR = (uint32_t)&(SPI2->DR);
-    DMA1_Stream4->M0AR = (uint32_t)&dummy;
+    DMA1_Stream4->M0AR = (uint32_t)&dummy_tx;
     DMA1_Stream4->NDTR = size;
 
     DMA1_Stream4->CR = (0 << 25)|(1 << 16)|(1 << 6)|(1 << 4); // off minc
 
-    // CS Low
+    // CS Low - choose slave
     GPIOB->ODR &= ~(1 << 12);
-
-    DMA1_Stream3->CR |= (1 << 0); // DMA Stream Enable
-    DMA1_Stream3->CR |= (1 << 0);
 
     SPI2->CR2 |= (1 << 0)|(1 << 1); // RXDMA, TXDMA
 
+    DMA1_Stream3->CR |= (1 << 0); // DMA Stream Enable
+    DMA1_Stream4->CR |= (1 << 0);
+
+    if(k_sem_take(&dma1_stream3_signal, K_MSEC(100)) != 0){
+        GPIOB->ODR |= (1 << 12);
+    }
 }
 
 void dma1_stream3_irqhandler(const void *arg){
     ARG_UNUSED(arg);
     if(DMA1->LISR & (1 << 27)){
         DMA1->LIFCR = (0x3D << 22);
-        // Send signal
-
+        // Send signal to dma
         GPIOB->ODR |= (1 << 12); // CS High
+        k_sem_give(&dma1_stream3_signal);
     }
 }
 
@@ -149,8 +142,6 @@ uint8_t pmw3901_read_reg(uint8_t reg_addr) {
 // Hàm kiểm tra sensor
 volatile uint8_t product_id = 0, revision_id = 1,inverse_product = 0;
 void optical_flow_sensor(void) {
-    OP_Init();
-
     // Reset SPI bus state bằng cách nhấp nháy CS
     GPIOB->BSRR = (1 << 28);
     k_usleep(50);
@@ -177,7 +168,6 @@ void pmw3901_write_reg(uint8_t reg_addr, uint8_t data) {
 }
 
 void pmw3901_init_registers(void) {
-
     pmw3901_write_reg(PMW3901_RST, 0x5A);
     k_msleep(5);
 

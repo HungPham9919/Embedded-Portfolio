@@ -35,10 +35,11 @@
 
 #define AT24_Flag (1 << 8)
 
-#define PMW3901_Flag (1 << 9)
+#define PMW3901_Ready (1 << 9)
+#define PMW3901_Failed (1 << 10)
 
-#define Motor_Flag (1 << 10)
-#define Radio_Flag (1 << 11)
+#define Motor_Flag (1 << 11)
+#define Radio_Flag (1 << 12)
 
 // #define ALL_SENSOR_FLAG (AT24_Flag|INA226_Flag|BMP280_Flag|HMC5883_Flag|BMI088_Flag|PMW3901_Flag|Motor_Flag|Radio_Flag)
 
@@ -54,6 +55,7 @@ extern struct k_sem ina226_signal;
 
 extern struct k_sem dma1_stream2_signal;
 extern struct k_sem dma1_stream5_signal;
+extern struct k_sem dma1_stream3_signal;
 
 extern struct k_work i2c3_error_work;
 extern struct k_work i2c1_error_work;
@@ -61,6 +63,7 @@ extern struct k_work bmi088_work;
 extern struct k_work ina226_work;
 extern struct k_work bmp280_work;
 extern struct k_work hmc5883_work;
+extern struct k_work pmw3901_work;
 
 // tính stack size
 

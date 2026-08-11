@@ -5,6 +5,7 @@
 #include "zephyr/usb/usb_device.h"
 #include "Radio_communication/Radio_Communication.h"
 #include "I2C_Addr_Scanner/Check_Address_I2C1.h"
+#include "PMW3901/pmw3901.h"
 
 int main(void)
 {
@@ -21,6 +22,8 @@ int main(void)
 
     Init_The_Config_Of_Drone();
     USART_Configuration();
+    
+    Optical_Flow_Init();
 
     DMA_I2C3_Stream();
     DMA_I2C1_Stream();

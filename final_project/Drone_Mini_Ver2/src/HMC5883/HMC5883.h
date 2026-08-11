@@ -1,4 +1,4 @@
-#ifndef  HMC5883_H
+#ifndef HMC5883_H
 #define HMC5883_H
 
 #include "zephyr/devicetree.h"

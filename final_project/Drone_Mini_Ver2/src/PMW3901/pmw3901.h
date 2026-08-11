@@ -24,5 +24,6 @@ void dma1_stream4_irqhandler(const void *arg);
 
 void pmw3901_init_registers(void);
 volatile uint8_t product_id, revision_id,inverse_product;
+void Optical_Flow_Init(void);
 void optical_flow_sensor(void);
 #endif

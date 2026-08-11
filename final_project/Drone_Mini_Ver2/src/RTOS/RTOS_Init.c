@@ -1,6 +1,6 @@
 #include "RTOS_Init.h"
 #include "BMP280.h"
-#include "HMC5883.h"
+#include "HMC5883/HMC5883.h"
 #include "I2C1_Processing_Data.h"
 #include "INA226/INA226.h"
 #include "Initialize/Init_reg.h"
@@ -82,15 +82,18 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     // PMW3901
     while (1) {
         if(pmw3901_error_init > 10){
+            // call status
             break;
         }
         optical_flow_sensor();
         if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
-
+            k_work_submit(&pmw3901_work);
         }
+        k_msleep(5);
     }
 
     pmw3901_init_registers();
+    k_event_post(&Initial_State_events, PMW3901_Ready);
 
     // INA226
     while(1){
@@ -165,8 +168,19 @@ void HMC5883_Task(void *p1, void *p2, void *p3){
     }
 }
 
-void PMW3901_Task(void *p1, void *p2, void *p3){
+struct k_work pmw3901_work;
+void pmw3901_work_handler(struct k_work *work){
+    pmw3901_error_init++;
+    // reset SPI bus by on/off SPI PP
+}
+
+void PMW3901_Task(void *p1, void *p2, void *p3){ // SPI
+    uint8_t pmw3901_buffer[12] = {0};
+    k_event_wait(&Initial_State_events, PMW3901_Ready, false, K_FOREVER);
+
     while(1){
+        k_sem_take(&pmw3901_signal,K_FOREVER);
+
         k_msleep(10);
     }
 }
@@ -244,6 +258,7 @@ K_SEM_DEFINE(ina226_signal,0,1);
 
 K_SEM_DEFINE(dma1_stream5_signal,0,1);
 K_SEM_DEFINE(dma1_stream2_signal,0,1);
+K_SEM_DEFINE(dma1_stream3_signal,0,1);
 
 // k_work
 K_WORK_DEFINE(i2c1_error_work, i2c1_error_work_handler);
@@ -252,3 +267,4 @@ K_WORK_DEFINE(bmi088_work, bmi088_work_handler);
 K_WORK_DEFINE(ina226_work, ina226_work_handler);
 K_WORK_DEFINE(bmp280_work,bmp280_work_handler);
 K_WORK_DEFINE(hmc5883_work, hmc5883_work_handler);
+K_WORK_DEFINE(pmw3901_work, pmw3901_work_handler);

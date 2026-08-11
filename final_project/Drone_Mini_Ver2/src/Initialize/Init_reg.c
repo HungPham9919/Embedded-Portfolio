@@ -4,6 +4,7 @@
 #include "zephyr/irq.h"
 #include "zephyr/kernel.h"
 
+void exti9_5irqhandler(const void *arg);
 void exti15_10irqhandler(const void *arg);
 void tim5_irqhandler(const void *arg);
 void dma1_stream2_irqhandler(const void *arg);
@@ -17,13 +18,13 @@ void BUS_Init(void){
 	RCC->APB2ENR |= (1 << 5); // UART 6
 	RCC->AHB1ENR |= (1 << 21); // DMA1 enable
 
-	RCC->APB1ENR |= RCC_APB1ENR_PWREN; // Bật Power Interface Clock
-	(void)RCC->APB1ENR;
-	PWR->CR |= PWR_CR_DBP;            // Mở khóa cho phép ghi thanh ghi Backup Domain (BDCR)
+	// RCC->APB1ENR |= RCC_APB1ENR_PWREN; // Bật Power Interface Clock
+	// (void)RCC->APB1ENR;
+	// PWR->CR |= PWR_CR_DBP;            // Mở khóa cho phép ghi thanh ghi Backup Domain (BDCR)
 
-	// Tắt LSE Bypass và LSE ON để trả PC14 về thuần GPIO
-	RCC->BDCR &= ~(RCC_BDCR_LSEON | RCC_BDCR_LSEBYP);
-	PWR->CR &= ~PWR_CR_DBP;           // Khóa lại
+	// // Tắt LSE Bypass và LSE ON để trả PC14 về thuần GPIO
+	// RCC->BDCR &= ~(RCC_BDCR_LSEON | RCC_BDCR_LSEBYP);
+	// PWR->CR &= ~PWR_CR_DBP;           // Khóa lại
 	for(volatile int i = 0; i < 100; i++); // wait for stable
 }
 
@@ -49,7 +50,6 @@ void Init_The_Config_Of_Drone(void){
 	GPIOB->AFR[1] |= (2 << 4)|(1 << 12); // PB9 AF2 - PB11-AF1
 
 	//84 MHz
-
 	TIM2->ARR = 1679;
 	TIM2->PSC = 0; // F =  84MHZ/(ARR + 1)(PSC + 1); = 50KHZ
 	TIM2->CNT = 0;
@@ -88,11 +88,21 @@ void Init_The_Config_Of_Drone(void){
 	TIM4->CR1 |= (1 << 0);
 
 	// PC0 HMC5883 - DRDY - Active low - EXTI-0
-	// GPIOC->MODER &= ~(3 << 0);
-	// SYSCFG->EXTICR[2] &= ~(0x0F << 8);
-	// SYSCFG->EXTICR[2] |= (2 << 8);
-	// EXTI->FTSR |= (1 << 10);
-	// EXTI->PR |= (1 << 10);
+	GPIOC->MODER &= ~(3 << 0);
+	SYSCFG->EXTICR[0] &= ~(0x0F << 0);
+	SYSCFG->EXTICR[0] |= (2 << 0);
+	EXTI->FTSR |= (1 << 0);
+	EXTI->PR |= (1 << 0);
+
+	// PC8 - EXTI8 for PMW3901
+    // 4. Cấu hình PC8 (EXTI / MOT) -> Input Pull-up - Pheriperal has been enabled
+    GPIOC->MODER &= ~(3 << 16);
+	SYSCFG->EXTICR[2] &= ~(0x0F << 0);
+	SYSCFG->EXTICR[2] |= (2 << 8);
+    EXTI->FTSR |= (1 << 8); // Falling trigger
+    EXTI->IMR |= (1 << 8); // enable
+
+	irq_connect_dynamic(23, 5, exti9_5irqhandler, NULL, 0);
 
 	// PC11 - Alert - Active low - EXTI11
 	GPIOC->MODER &= ~(3 << 22); // PC11
@@ -202,8 +212,19 @@ void DMA_I2C1_Stream(void){
 	IRQ_CONNECT(16,6,dma1_stream5_irqhandler,NULL,0);
 	irq_enable(16);
 }
-volatile int exti15_10_count = 0, exti_11_count = 0;
 
+volatile int exti11_count = 0;
+void exti9_5irqhandler(const void *arg){
+	ARG_UNUSED(arg);
+
+	if(EXTI->PR & (1 << 8)){
+		EXTI->PR = (1 << 8); // clear pending
+		exti11_count++;
+		k_sem_give(&pmw3901_signal);
+	}
+}
+
+volatile int exti15_10_count = 0, exti_11_count = 0;
 void exti15_10irqhandler(const void *arg){
 	ARG_UNUSED(arg);
 	
