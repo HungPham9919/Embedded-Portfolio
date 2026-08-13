@@ -23,7 +23,7 @@ int main(void)
     Init_The_Config_Of_Drone();
     USART_Configuration();
     
-    Optical_Flow_Init();
+    // Optical_Flow_Init();
 
     DMA_I2C3_Stream();
     DMA_I2C1_Stream();

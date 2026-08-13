@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Drone Mini Ver2 (STM32F405)",
+            "name": "Debug Drone (STM32F405)",
             "type": "cortex-debug",
             "request": "launch",
             "servertype": "openocd",

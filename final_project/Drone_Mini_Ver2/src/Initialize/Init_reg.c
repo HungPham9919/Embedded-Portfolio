@@ -4,6 +4,8 @@
 #include "zephyr/irq.h"
 #include "zephyr/kernel.h"
 
+
+void exti0_irqhandler(const void *arg);
 void exti9_5irqhandler(const void *arg);
 void exti15_10irqhandler(const void *arg);
 void tim5_irqhandler(const void *arg);
@@ -93,17 +95,20 @@ void Init_The_Config_Of_Drone(void){
 	SYSCFG->EXTICR[0] |= (2 << 0);
 	EXTI->FTSR |= (1 << 0);
 	EXTI->PR |= (1 << 0);
-
+	EXTI->IMR |= (1 << 0);
+	irq_connect_dynamic(6, 6, exti0_irqhandler, NULL, 0);
+	irq_enable(6);
 	// PC8 - EXTI8 for PMW3901
     // 4. Cấu hình PC8 (EXTI / MOT) -> Input Pull-up - Pheriperal has been enabled
     GPIOC->MODER &= ~(3 << 16);
 	SYSCFG->EXTICR[2] &= ~(0x0F << 0);
 	SYSCFG->EXTICR[2] |= (2 << 8);
     EXTI->FTSR |= (1 << 8); // Falling trigger
+	EXTI->PR |= (1 << 8);
     EXTI->IMR |= (1 << 8); // enable
 
 	irq_connect_dynamic(23, 5, exti9_5irqhandler, NULL, 0);
-
+	irq_enable(23);
 	// PC11 - Alert - Active low - EXTI11
 	GPIOC->MODER &= ~(3 << 22); // PC11
 	SYSCFG->EXTICR[2] &= ~(0x0F << 12);
@@ -213,13 +218,21 @@ void DMA_I2C1_Stream(void){
 	irq_enable(16);
 }
 
-volatile int exti11_count = 0;
+void exti0_irqhandler(const void *arg){
+	ARG_UNUSED(arg);
+	if(EXTI->PR & (1 << 0)){
+		EXTI->PR = (1 << 0);
+		// send signal
+	}
+}
+
+volatile int exti8_count = 0;
 void exti9_5irqhandler(const void *arg){
 	ARG_UNUSED(arg);
 
 	if(EXTI->PR & (1 << 8)){
 		EXTI->PR = (1 << 8); // clear pending
-		exti11_count++;
+		exti8_count++;
 		k_sem_give(&pmw3901_signal);
 	}
 }

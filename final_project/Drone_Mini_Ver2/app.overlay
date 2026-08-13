@@ -23,4 +23,3 @@
     apb1-prescaler = <4>;          /* PCLK1 = 42 MHz (Dành cho I2C) */
     apb2-prescaler = <2>;          /* PCLK2 = 84 MHz */
 };
-

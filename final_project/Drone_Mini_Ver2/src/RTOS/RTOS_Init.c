@@ -8,6 +8,7 @@
 #include "PMW3901/pmw3901.h"
 #include "I2C_Addr_Scanner/Check_Address_I2C1.h"
 #include "I2C3_Process_Data/I2C3_Processing.h"
+#include "stm32f405xx.h"
 #include "zephyr/kernel.h"
 #include <stdbool.h>
 #include <sys/_stdint.h>
@@ -80,20 +81,20 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
 
     
     // PMW3901
-    while (1) {
-        if(pmw3901_error_init > 10){
-            // call status
-            break;
-        }
-        optical_flow_sensor();
-        if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
-            k_work_submit(&pmw3901_work);
-        }
-        k_msleep(5);
-    }
+    // while (1) {
+    //     if(pmw3901_error_init > 10){
+    //         // call status
+    //         break;
+    //     }
+    //     optical_flow_sensor();
+    //     if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
+    //         k_work_submit(&pmw3901_work);
+    //     }
+    //     k_msleep(5);
+    // }
 
-    pmw3901_init_registers();
-    k_event_post(&Initial_State_events, PMW3901_Ready);
+    // pmw3901_init_registers();
+    // k_event_post(&Initial_State_events, PMW3901_Ready);
 
     // INA226
     while(1){
@@ -101,6 +102,8 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
             break;
         }
         if(INA226_Initialized() == 1) break;
+        k_work_submit(&ina226_work);
+        k_msleep(5);
     }
     k_event_post(&Initial_State_events, INA226_Ready);
 
@@ -145,6 +148,8 @@ void BMI088_Task(void *p1, void *p2, void *p3){     // 200Hz
         }
         k_mutex_unlock(&i2c3_mutex);
         Calculate_And_Filter_Angle(acc_data,gyro_data,dt);
+
+        // cal PID
     }
 }
 
@@ -171,7 +176,9 @@ void HMC5883_Task(void *p1, void *p2, void *p3){
 struct k_work pmw3901_work;
 void pmw3901_work_handler(struct k_work *work){
     pmw3901_error_init++;
-    // reset SPI bus by on/off SPI PP
+    SPI2->CR1 &= ~(1 << 0);
+    k_msleep(10);
+    SPI2->CR1 |= (1 << 0);
 }
 
 void PMW3901_Task(void *p1, void *p2, void *p3){ // SPI
@@ -180,9 +187,10 @@ void PMW3901_Task(void *p1, void *p2, void *p3){ // SPI
 
     while(1){
         k_sem_take(&pmw3901_signal,K_FOREVER);
-
-        k_msleep(10);
+        SPI2_DMA_Transfer(pmw3901_buffer, sizeof(pmw3901_buffer));
     }
+
+    // cal PID
 }
 
 struct k_work bmp280_work;
@@ -210,6 +218,7 @@ void ina226_work_handler(struct k_work *work){
     I2C1_Initialized();
     ina_error_init++;
 }
+
 volatile int16_t check_limit = 0;
 void INA226_Task(void *p1, void *p2, void *p3){
     k_event_wait(&Initial_State_events, INA226_Ready, false, K_FOREVER);

@@ -11,7 +11,6 @@ volatile int16_t delta_y = 0;
 volatile int32_t pos_x = 0; // Tích lũy tọa độ X
 volatile int32_t pos_y = 0; // Tích lũy tọa độ Y
 volatile uint8_t squal = 0;
-volatile uint8_t squal_Reg = 0;
 volatile uint8_t motion_flag = 0;
 volatile uint8_t raw_sum = 0, raw_max = 0, raw_min = 0;
 uint8_t burst_data[12];
@@ -100,7 +99,7 @@ void SPI2_DMA_Transfer(uint8_t *rx_buf, uint16_t size){
     DMA1_Stream3->CR |= (1 << 0); // DMA Stream Enable
     DMA1_Stream4->CR |= (1 << 0);
 
-    if(k_sem_take(&dma1_stream3_signal, K_MSEC(100)) != 0){
+    if(k_sem_take(&dma1_stream3_signal, K_MSEC(10)) != 0){
         GPIOB->ODR |= (1 << 12);
     }
 }
@@ -125,13 +124,9 @@ uint8_t SPI_Transfer(uint8_t data){
 // Hàm đọc 1 thanh ghi từ PMW3901
 uint8_t pmw3901_read_reg(uint8_t reg_addr) {
     uint8_t val = 0;
-    // Bit 7 = 0 đại diện cho thao tác READ
-    reg_addr &= 0x7F;
-    // Kéo CS LOW
+    reg_addr &= 0x7F; // bit 7 = 0 - Read
     GPIOB->BSRR = (1 << 28);
-    // Gửi địa chỉ thanh ghi
     SPI_Transfer(reg_addr);
-    // BẮT BUỘC: Delay t_HOLD (~50us) để PMW3901 chuẩn bị dữ liệu ra bus
     k_usleep(50);
     val = SPI_Transfer(0);
     GPIOB->BSRR = (1 << 12);

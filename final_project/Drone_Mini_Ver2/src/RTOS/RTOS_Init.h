@@ -41,8 +41,6 @@
 #define Motor_Flag (1 << 11)
 #define Radio_Flag (1 << 12)
 
-// #define ALL_SENSOR_FLAG (AT24_Flag|INA226_Flag|BMP280_Flag|HMC5883_Flag|BMI088_Flag|PMW3901_Flag|Motor_Flag|Radio_Flag)
-
 extern struct k_mutex i2c1_mutex;
 extern struct k_mutex i2c3_mutex;
 
