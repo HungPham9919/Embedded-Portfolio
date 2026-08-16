@@ -5,7 +5,6 @@
 #include "zephyr/kernel.h"
 #include "stdio.h"
 #include "stdint.h"
-#include "I2C1_Processing_Data.h"
 #include <sys/_stdint.h>
 
 #define INA226_ADDR 0x40

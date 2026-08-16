@@ -4,7 +4,6 @@
 #include "zephyr/irq.h"
 #include "zephyr/kernel.h"
 
-
 void exti0_irqhandler(const void *arg);
 void exti9_5irqhandler(const void *arg);
 void exti15_10irqhandler(const void *arg);
@@ -20,13 +19,6 @@ void BUS_Init(void){
 	RCC->APB2ENR |= (1 << 5); // UART 6
 	RCC->AHB1ENR |= (1 << 21); // DMA1 enable
 
-	// RCC->APB1ENR |= RCC_APB1ENR_PWREN; // Bật Power Interface Clock
-	// (void)RCC->APB1ENR;
-	// PWR->CR |= PWR_CR_DBP;            // Mở khóa cho phép ghi thanh ghi Backup Domain (BDCR)
-
-	// // Tắt LSE Bypass và LSE ON để trả PC14 về thuần GPIO
-	// RCC->BDCR &= ~(RCC_BDCR_LSEON | RCC_BDCR_LSEBYP);
-	// PWR->CR &= ~PWR_CR_DBP;           // Khóa lại
 	for(volatile int i = 0; i < 100; i++); // wait for stable
 }
 

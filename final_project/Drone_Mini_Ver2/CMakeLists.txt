@@ -19,9 +19,7 @@ zephyr_include_directories(
     src/PMW3901
     src/BMP280
     src/PWM_Control
-    src/I2C_Addr_Scanner
-    src/I2C3_Process_Data
-    src/I2C1_Process_Data
+    src/I2C_Progress
     src/Ranging_Sensor
     src/Ranging_Sensor/core/inc
 )
@@ -40,9 +38,7 @@ file(GLOB_RECURSE ALL_SOURCES
     HMC5883/*.c
     AT24LC/*.c
     PMW_Control/*.c
-    I2C_Addr_Scanner/*.c
-    I2C3_Process_Data/*.c
-    I2C1_Process_Data/*.c
+    I2C_Progress/*.c
     Ranging_Sensor/*.c
     Ranging_Sensor/core/src/*.c
 )

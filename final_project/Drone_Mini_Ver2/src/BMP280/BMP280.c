@@ -1,5 +1,5 @@
 #include "BMP280.h"
-#include "I2C1_Processing_Data.h"
+#include "I2C_Progress/I2C.h"
 #include "RTOS/RTOS_Init.h"
 #include <sys/_stdint.h>
 #include "math.h"
@@ -10,26 +10,29 @@ volatile uint8_t BMP_ID = 0;
 
 int BMP280_Initialized(void){
     uint8_t bmpid = 0;
-	I2C1_Write_Data_Safe(BMP280_ADDR, BMP280_MEASURE, 0x27,1);
+	i2c_write_data(dev_i2c1,BMP280_ADDR, BMP280_MEASURE, 0x27,1);
 	k_msleep(5);
-	I2C1_Write_Data_Safe(BMP280_ADDR, BMP280_CONFIG, 0x00,1);
+	i2c_write_data(dev_i2c1,BMP280_ADDR, BMP280_CONFIG, 0x00,1);
 	k_msleep(5);
-	I2C1_Read_Multiple_Byte_Safe(BMP280_ADDR, BMP280_ID, &bmpid, 1, &i2c1_error_work); // Read the ID: 58
+	if(i2c_dma_read_data(dev_i2c1,BMP280_ADDR, BMP280_ID, &bmpid, 1, &dma1_stream5_signal) != 0) goto ERR; // Read the ID: 58
     BMP_ID = bmpid;
-	return 1;
-}
 
+	ERR:
+		k_work_submit(&i2c1_error_work);
+		printk("Failed to init BMP280 \n");
+	return 0;
+}
 // Stream 5 for i2c1
 
 int BMP280_Calibration(void){
 	static uint8_t buffer[24];
-	I2C1_Read_Data_DMA_With_Safe(BMP280_ADDR, BMP280_Calib,buffer, 24, &i2c1_error_work);
+	if(i2c_dma_read_data(dev_i2c1,BMP280_ADDR, BMP280_Calib,buffer, 24, &dma1_stream5_signal) != 0) goto ERR;
     
-    calib.dig_T1 = (uint16_t)(buffer[0] | (buffer[1] << 8));
+    calib.dig_T1 = (int16_t)(buffer[0] | (buffer[1] << 8));
 	calib.dig_T2 = (int16_t)(buffer[2] | (buffer[3] << 8));
 	calib.dig_T3 = (int16_t)(buffer[4] | (buffer[5] << 8));
 
-	calib.dig_P1 = (uint16_t)(buffer[6] | (buffer[7] << 8));
+	calib.dig_P1 = (int16_t)(buffer[6] | (buffer[7] << 8));
 	calib.dig_P2 = (int16_t)(buffer[8] | (buffer[9] << 8));
 	calib.dig_P3 = (int16_t)(buffer[10] | (buffer[11] << 8));
 	calib.dig_P4 = (int16_t)(buffer[12] | (buffer[13] << 8));
@@ -38,7 +41,11 @@ int BMP280_Calibration(void){
 	calib.dig_P7 = (int16_t)(buffer[18] | (buffer[19] << 8));
 	calib.dig_P8 = (int16_t)(buffer[20] | (buffer[21] << 8));
 	calib.dig_P9 = (int16_t)(buffer[22] | (buffer[23] << 8));
-	return 1;
+
+	ERR:
+		k_work_submit(&i2c1_error_work);
+		printk("Failed to calib BMP280 \n");
+	return 0;
 }
 
 int32_t t_fine;

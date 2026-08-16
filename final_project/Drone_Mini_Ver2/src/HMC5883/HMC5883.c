@@ -1,5 +1,5 @@
 #include "HMC5883.h"
-#include "I2C3_Processing.h"
+#include "I2C_Progress/I2C.h"
 #include "RTOS_Init.h"
 #include "bmi088.h"
 #include "zephyr/kernel.h"
@@ -13,11 +13,13 @@ hmc_data_os hmc_offset;
 
 int HMC5883_Initialized(void){
     // Mode: Normal : FRE 75 : 8 sample -> 01111000 = 0x78
-    I2C3_Write_Data_With_Retry(HMC5883_ADDR, HMC5883_REG_A, 0x78);
-    I2C3_Write_Data_With_Retry(HMC5883_ADDR, HMC5883_REG_B, 0x20); // Default gain
-    I2C3_Write_Data_With_Retry(HMC5883_ADDR, HMC5883_MODE, 0x00); // Continuous mode
-
-    return 1;
+    if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_REG_A, 0x78,1) != 0) goto ERR;
+    if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_REG_B, 0x20,1) != 0) goto ERR; // Default gain
+    if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_MODE, 0x00,1) != 0) goto ERR; // Continuous mode
+    ERR:
+        k_work_submit(&i2c3_error_work);
+        printk("Failed to init HMC5883 \n");
+    return 0;
 }
 
 int HMC5883_Calibration(void){
@@ -29,7 +31,7 @@ int HMC5883_Calibration(void){
     int16_t mag_x_raw, mag_z_raw, mag_y_raw;
 
     for(int i = 0;i < 500; i++){
-        I2C3_Read_Data_DMA_Safe(HMC5883_ADDR, HMC5883_DATA, hmc_calib, sizeof(hmc_calib), &i2c3_error_work);
+        if(i2c_dma_read_data(dev_i2c3,HMC5883_ADDR, HMC5883_DATA, hmc_calib, sizeof(hmc_calib), &dma1_stream5_signal) != 0) goto ERR;
 
         mag_x_raw = (int16_t)(hmc_calib[0] << 8 | hmc_calib[1]);
         mag_z_raw = (int16_t)(hmc_calib[2] << 8 | hmc_calib[3]);
@@ -49,7 +51,11 @@ int HMC5883_Calibration(void){
     hmc_offset.mag_x_os = (float)((x_max + x_min)/2.0f);
     hmc_offset.mag_z_os = (float)((z_max + z_min)/2.0f);
     hmc_offset.mag_y_os = (float)((y_max + y_min)/2.0f);
-    return 1;
+
+    ERR:
+        k_work_submit(&i2c1_error_work);
+        printk("Failed to cablib HMC5883 \n");
+    return 0;
 }
 
 void Cal_The_Direction_Of_Yaw(uint8_t *data){

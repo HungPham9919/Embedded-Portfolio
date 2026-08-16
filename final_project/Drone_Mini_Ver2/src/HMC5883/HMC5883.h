@@ -5,7 +5,6 @@
 #include "zephyr/kernel.h"
 #include "stdio.h"
 #include "stdint.h"
-#include "I2C3_Processing.h"
 #include <sys/_stdint.h>
 #include "RTOS/RTOS_Init.h"
 #include "math.h"
