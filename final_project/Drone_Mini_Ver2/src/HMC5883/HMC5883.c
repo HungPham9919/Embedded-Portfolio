@@ -31,7 +31,7 @@ int HMC5883_Calibration(void){
     int16_t mag_x_raw, mag_z_raw, mag_y_raw;
 
     for(int i = 0;i < 500; i++){
-        if(i2c_dma_read_data(dev_i2c3,HMC5883_ADDR, HMC5883_DATA, hmc_calib, sizeof(hmc_calib), &dma1_stream5_signal) != 0) goto ERR;
+        if(i2c_dma_read_data(dev_i2c3,HMC5883_ADDR, HMC5883_DATA, hmc_calib, sizeof(hmc_calib), &dma1_stream2_signal) != 0) goto ERR;
 
         mag_x_raw = (int16_t)(hmc_calib[0] << 8 | hmc_calib[1]);
         mag_z_raw = (int16_t)(hmc_calib[2] << 8 | hmc_calib[3]);

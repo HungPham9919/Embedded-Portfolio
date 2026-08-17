@@ -161,11 +161,12 @@ int i2c_write_data(const struct device *dev,uint8_t slave_id, uint8_t reg, uint1
 
     i2c->DR = (slave_id << 1);
     timeout = 10000;
-    while(!(i2c->SR1 & (1 << 1)) && --timeout);
-
-    if(i2c->SR1 & (1 << 10)){
-        i2c->SR1 &= ~(1 << 10);
-        goto WRITE_ERROR;
+    while(!(i2c->SR1 & (1 << 1)) && --timeout){
+        if(i2c->SR1 & (1 << 10)){
+            i2c->CR1 |= (1 << 9);
+            i2c->SR1 &= ~(1 << 10);
+            return -EIO;
+        };
     };
 
     if(!timeout) goto WRITE_ERROR;
@@ -185,9 +186,10 @@ int i2c_write_data(const struct device *dev,uint8_t slave_id, uint8_t reg, uint1
     }
     else {
         timeout = 10000;
-        i2c->DR = (uint8_t)((value >> 8) & 0xFF);
+        i2c->DR = (uint8_t)(value >> 8);
         while(!(i2c->SR1 & (1 << 7)) && --timeout);
         if(!timeout) goto WRITE_ERROR;
+
         timeout = 10000;
         i2c->DR = (uint8_t)(value & 0xFF);
         while(!(i2c->SR1 & (1 << 2)) && --timeout);
@@ -253,7 +255,7 @@ int i2c_dma_read_data(const struct device *dev, uint8_t slave_id, uint8_t reg,ui
     if(!timeout) goto ERR;
     // dma
 
-    dma_stream->CR &= ~(1 << 0);
+    dma_stream->CR &= ~(1 << 0); // off to config
     while (dma_stream->CR & (1 << 0));
 
     dma->LIFCR = 0x0F7D0F7D;
@@ -266,15 +268,14 @@ int i2c_dma_read_data(const struct device *dev, uint8_t slave_id, uint8_t reg,ui
     dma_stream->M0AR = (uint32_t)value;
     dma_stream->NDTR = len;
 
-    dma_stream->CR = (cfg->dma_rx_channel << 25)|(3 << 16)|(1 << 10)|(1 << 4)|(1 << 0);
+    dma_stream->CR = (cfg->dma_rx_channel << 25)|(2 << 16)|(1 << 10)|(1 << 4)|(1 << 0);
     i2c->CR2 |= (1 << 11)|(1 << 12);
 
     if(len == 1){
-        i2c->CR1 &= ~(1 << 10);
-        i2c->CR1 |= (1 << 9);
+        i2c->CR2 |= (1 << 11) | (1 << 12); // DMAEN + LAST
     }
     else {
-        i2c->CR1 |= (1 << 10);
+        i2c->CR2 |= (1 << 11);
     }
 
     (void)i2c->SR1;
@@ -288,6 +289,7 @@ int i2c_dma_read_data(const struct device *dev, uint8_t slave_id, uint8_t reg,ui
 
 ERR:
     i2c->CR1 |= (1 << 9);
+    i2c->CR2 &= ~((1 << 11) | (1 << 12));
     return -ETIMEDOUT;
 }
 
@@ -303,12 +305,12 @@ ERR:
                      ((DMA_TypeDef *)DT_REG_ADDR(DT_INST_DMAS_CTLR_BY_NAME(inst, rx))), \
                      (NULL)),                                                  \
         .dma_stream = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas),           \
-                     ((DMA_Stream_TypeDef *)(DT_REG_ADDR(DT_INST_DMAS_CTLR_BY_NAME(inst, rx)) + \
-                       0x10 + 0x18 * DT_INST_DMAS_CELL_BY_NAME(inst, rx, channel))), \
-                     (NULL)),                                                  \
+                    ((DMA_Stream_TypeDef *)(DT_REG_ADDR(DT_INST_DMAS_CTLR_BY_NAME(inst, rx)) + \
+                    0x10 + 0x18 * DT_INST_DMAS_CELL_BY_NAME(inst, rx, channel))), \
+                    (NULL)),                                                  \
         .dma_rx_channel = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas),       \
-                     (DT_INST_DMAS_CELL_BY_NAME(inst, rx, slot)),              \
-                     (0)),                                                     \
+                    (DT_INST_DMAS_CELL_BY_NAME(inst, rx, slot)),              \
+                    (0)),                                                     \
     };                                                                         \
     DEVICE_DT_INST_DEFINE(inst, drone_i2c_init_hw, NULL, NULL,                 \
                           &i2c_dev_config_##inst, POST_KERNEL,                 \

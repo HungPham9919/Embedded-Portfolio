@@ -7,6 +7,7 @@
 #include "BMI088_Library/bmi088.h"
 #include "PMW3901/pmw3901.h"
 #include "zephyr/kernel.h"
+#include "zephyr/sys/printk.h"
 #include <stdbool.h>
 #include <sys/_stdint.h>
 
@@ -30,7 +31,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     uint8_t sensors_addr[7] = {0};
     while(1){
 
-        if(drone_i2c_check_address(dev_i2c1, sensors_addr, 3 == 0)) break;
+        if(drone_i2c_check_address(dev_i2c1, sensors_addr, 3) == 0) break;
         else {
             k_work_submit(&i2c1_error_work);
             if(i2c1_error_count > 50) break;
@@ -66,17 +67,20 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
             // REST MCU - call radio
             break;
         }
-        if(BMI088_Initialize() == 1 && BMI088_Calib() == 1) break;
+        if(BMI088_Initialize() == 0 && BMI088_Calib() == 0) break;
         k_work_submit(&bmi088_work);
         k_msleep(10);
     }
+    bmi_error_init++;
+    printk("BMI088 OK \n");
+
     k_event_post(&Initial_State_events,BMI088_Ready); // BMI088
     // HMC5883
     while (1) {
         if(hmc_error_init > 10){
             break;
         }
-        if(HMC5883_Initialized() == 1 && HMC5883_Calibration() == 1) break;
+        if(HMC5883_Initialized() == 0 && HMC5883_Calibration() == 0) break;
 
         k_work_submit(&hmc5883_work);
         k_msleep(5);
@@ -107,7 +111,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         if(ina_error_init > 10) {
             break;
         }
-        if(INA226_Initialized() == 1) break;
+        if(INA226_Initialized() == 0) break;
         k_work_submit(&ina226_work);
         k_msleep(5);
     }
@@ -118,7 +122,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         if(bmp_error_init > 10){
             break;
         }
-        if(BMP280_Initialized() == 1 && BMP280_Calibration() == 1) break;
+        if(BMP280_Initialized() == 0 && BMP280_Calibration() == 0) break;
         k_work_submit(&bmp280_work);
         k_msleep(5);
     }
