@@ -47,8 +47,12 @@
     scl-gpios = <&gpioa 8 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
     sda-gpios = <&gpioc 9 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
 
-    dmas = <&dma1 2 3 STM32_DMA_PERIPH_TO_MEMORY STM32_DMA_PRIORITY_HIGH>;    
-    dma-names = "rx";
+    /* Cú pháp 4 Cells: <&dma1 stream channel slot features> */
+    /* I2C3 RX: Stream 2, Channel 3 */
+    /* I2C3 TX: Stream 4, Channel 3 */
+    dmas = <&dma1 2 3 STM32_DMA_PERIPH_TO_MEMORY STM32_DMA_PRIORITY_HIGH>,
+           <&dma1 4 3 STM32_DMA_MEMORY_TO_PERIPH STM32_DMA_PRIORITY_HIGH>;    
+    dma-names = "rx", "tx";
 };
 
 &i2c1 {
@@ -61,6 +65,9 @@
     scl-gpios = <&gpiob 6 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
     sda-gpios = <&gpiob 7 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
 
-    dmas = <&dma1 5 1 STM32_DMA_PERIPH_TO_MEMORY STM32_DMA_PRIORITY_HIGH>;
-    dma-names = "rx";
+    /* I2C1 RX: Stream 5, Channel 1 */
+    /* I2C1 TX: Stream 6, Channel 1 */
+    dmas = <&dma1 5 1 STM32_DMA_PERIPH_TO_MEMORY STM32_DMA_PRIORITY_HIGH>,
+           <&dma1 6 1 STM32_DMA_MEMORY_TO_PERIPH STM32_DMA_PRIORITY_HIGH>;
+    dma-names = "rx", "tx";
 };

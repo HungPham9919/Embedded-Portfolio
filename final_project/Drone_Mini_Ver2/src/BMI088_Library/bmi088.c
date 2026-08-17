@@ -180,41 +180,41 @@ void Calculate_And_Filter_Angle(uint8_t *acc_data,uint8_t *gyro_data,float dt){
 }
 
 int BMI088_Initialize(void){
-	if(i2c_write_data(dev_i2c3, ACC_ADDR, ACC_SOFT_RST, 0xB6, 1) != 0) goto ERR;
-	k_msleep(50);
-	if(i2c_write_data(dev_i2c3,ACC_ADDR,ACC_PWR_CFG,sens.acc_pwr_cfg, 1) != 0) goto ERR; // Active 0x00
+	if(i2c_write_data(dev_i2c3, ACC_ADDR, ACC_SOFT_RST, 0xB6, 1,&dma1_stream4_signal) != 0) goto ERR;
+	k_msleep(100);
+	if(i2c_write_data(dev_i2c3,ACC_ADDR,ACC_PWR_CFG,sens.acc_pwr_cfg, 1,&dma1_stream4_signal) != 0) goto ERR; // Active 0x00
 	k_msleep(20);
-	if(i2c_write_data(dev_i2c3,ACC_ADDR,ACC_PWR_CRTL,sens.acc_pwr,1) != 0) goto ERR; // normal mode 0x04
+	if(i2c_write_data(dev_i2c3,ACC_ADDR,ACC_PWR_CRTL,sens.acc_pwr,1,&dma1_stream4_signal) != 0) goto ERR; // normal mode 0x04
 	k_msleep(50);
 
-	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_SOFT_RST, 0xB6,1)!= 0) goto ERR; // GYRO_SOFTRESET
-	k_msleep(50);
-	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_LPM1, sens.gyro_pwr,1) != 0) goto ERR; // normal mode
+	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_SOFT_RST, 0xB6,1,&dma1_stream4_signal)!= 0) goto ERR; // GYRO_SOFTRESET
+	k_msleep(100);
+	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_LPM1, sens.gyro_pwr,1,&dma1_stream4_signal) != 0) goto ERR; // normal mode
 	k_msleep(50);
 
 	// INT mode
-	if(i2c_write_data(dev_i2c3,ACC_ADDR, ACC_IO_MAP, sens.acc_io_map,1) != 0) goto ERR; // 0x04 for 0x58
+	if(i2c_write_data(dev_i2c3,ACC_ADDR, ACC_IO_MAP, sens.acc_io_map,1,&dma1_stream4_signal) != 0) goto ERR; // 0x04 for 0x58
 	k_msleep(2);
-	if(i2c_write_data(dev_i2c3,ACC_ADDR,ACC_IO1_CFG, sens.acc_int1,1) != 0) goto ERR; // 0x0A for 0x53
+	if(i2c_write_data(dev_i2c3,ACC_ADDR,ACC_IO1_CFG, sens.acc_int1,1,&dma1_stream4_signal) != 0) goto ERR; // 0x0A for 0x53
 	k_msleep(2);
-	if(i2c_write_data(dev_i2c3,ACC_ADDR, ACC_IO2_CFG, 0x00,1) !=  0) goto ERR; // Off int 2
+	if(i2c_write_data(dev_i2c3,ACC_ADDR, ACC_IO2_CFG, 0x00,1,&dma1_stream4_signal) !=  0) goto ERR; // Off int 2
 	k_msleep(2);
 
-	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_INT34_IO_CFG, sens.gyro_int3,1) != 0) goto ERR;
+	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_INT34_IO_CFG, sens.gyro_int3,1,&dma1_stream4_signal) != 0) goto ERR;
 	k_msleep(2);
-	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_INT_CTRL, 0x80,1) != 0) goto ERR;
+	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_INT_CTRL, 0x80,1,&dma1_stream4_signal) != 0) goto ERR;
 	k_msleep(2);
-	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_INT34_IO_MAP, sens.gyro_io_map_cfg,1) != 0) goto ERR;
+	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_INT34_IO_MAP, sens.gyro_io_map_cfg,1,&dma1_stream4_signal) != 0) goto ERR;
 	k_msleep(2);
 
 	// Configuration
-	if(i2c_write_data(dev_i2c3,ACC_ADDR, ACC_CONFIG,sens.acc_config,1) != 0) goto ERR;
+	if(i2c_write_data(dev_i2c3,ACC_ADDR, ACC_CONFIG,sens.acc_config,1,&dma1_stream4_signal) != 0) goto ERR;
 	k_msleep(2);
-	if(i2c_write_data(dev_i2c3,ACC_ADDR,ACC_RANGE,sens.acc_range,1) != 0) goto ERR;
+	if(i2c_write_data(dev_i2c3,ACC_ADDR,ACC_RANGE,sens.acc_range,1,&dma1_stream4_signal) != 0) goto ERR;
 	k_msleep(2);
-	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_BANDWIDTH, sens.gyro_bandwidth,1) != 0) goto ERR;
+	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_BANDWIDTH, sens.gyro_bandwidth,1,&dma1_stream4_signal) != 0) goto ERR;
 	k_msleep(2);
-	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_RANGE, sens.gyro_range,1) != 0) goto ERR;
+	if(i2c_write_data(dev_i2c3,GYRO_ADDR, GYRO_RANGE, sens.gyro_range,1,&dma1_stream4_signal) != 0) goto ERR;
 	k_msleep(2);
 
 	// Check status
@@ -223,13 +223,12 @@ int BMI088_Initialize(void){
 	k_msleep(2);
 	if(i2c_dma_read_data(dev_i2c3,GYRO_ADDR, GYRO_CHIP_ID, &status.gyro_id, 1, &dma1_stream2_signal) != 0) goto ERR;
 	k_msleep(20);
-	if(i2c_dma_read_data(dev_i2c3,ACC_ADDR, ACC_PWR_CRTL, &status.acc_pwr_ctrl,1,&dma1_stream2_signal) != 0) goto ERR;
-	k_msleep(2);
-	// Check_Status();
 
-	ERR:
-		k_work_submit(&i2c3_error_work);
-		printk("Failed to init BMI088 \n");
-		return -1;
+	Check_Status();
 	return 0;
+ERR:
+	k_work_submit(&i2c3_error_work);
+	printk("Failed to init BMI088 \n");
+	return -1;
+
 }

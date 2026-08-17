@@ -52,8 +52,10 @@ extern struct k_sem bmp280_signal;
 extern struct k_sem ina226_signal;
 
 extern struct k_sem dma1_stream2_signal;
-extern struct k_sem dma1_stream5_signal;
 extern struct k_sem dma1_stream3_signal;
+extern struct k_sem dma1_stream4_signal;
+extern struct k_sem dma1_stream5_signal;
+extern struct k_sem dma1_stream6_signal;
 
 extern struct k_work i2c3_error_work;
 extern struct k_work i2c1_error_work;

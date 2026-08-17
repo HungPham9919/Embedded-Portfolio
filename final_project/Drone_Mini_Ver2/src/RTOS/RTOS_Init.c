@@ -71,9 +71,8 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_work_submit(&bmi088_work);
         k_msleep(10);
     }
-    bmi_error_init++;
     printk("BMI088 OK \n");
-
+    bmi_error_init++;
     k_event_post(&Initial_State_events,BMI088_Ready); // BMI088
     // HMC5883
     while (1) {
@@ -267,10 +266,12 @@ K_SEM_DEFINE(radio_signal,0,1);
 K_SEM_DEFINE(bmp280_signal,0,1);
 K_SEM_DEFINE(ina226_signal,0,1);
 
-K_SEM_DEFINE(dma1_stream5_signal,0,1);
+
 K_SEM_DEFINE(dma1_stream2_signal,0,1);
 K_SEM_DEFINE(dma1_stream3_signal,0,1);
-
+K_SEM_DEFINE(dma1_stream4_signal,0,1);
+K_SEM_DEFINE(dma1_stream5_signal,0,1);
+K_SEM_DEFINE(dma1_stream6_signal,0,1);
 // k_work
 K_WORK_DEFINE(i2c1_error_work, i2c1_error_work_handler);
 K_WORK_DEFINE(i2c3_error_work, i2c3_error_work_handler);
