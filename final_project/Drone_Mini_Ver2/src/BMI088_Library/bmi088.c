@@ -216,5 +216,6 @@ int BMI088_Initialize(void){
 	I2C3_Read_Multiple_Byte_Safe(GYRO_ADDR, GYRO_CHIP_ID, &status.gyro_id, 1, &i2c3_error_work);
 
 	k_msleep(20);
+	Check_Status();
 	return 1;
 }
