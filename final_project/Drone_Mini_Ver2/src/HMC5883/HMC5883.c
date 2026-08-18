@@ -13,9 +13,9 @@ hmc_data_os hmc_offset;
 
 int HMC5883_Initialized(void){
     // Mode: Normal : FRE 75 : 8 sample -> 01111000 = 0x78
-    if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_REG_A, 0x78,1,&dma1_stream4_signal) != 0) goto ERR;
-    if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_REG_B, 0x20,1,&dma1_stream4_signal) != 0) goto ERR; // Default gain
-    if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_MODE, 0x00,1,&dma1_stream4_signal) != 0) goto ERR; // Continuous mode
+    if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_REG_A, 0x78,1) != 0) goto ERR;
+    if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_REG_B, 0x20,1) != 0) goto ERR; // Default gain
+    if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_MODE, 0x00,1) != 0) goto ERR; // Continuous mode
     ERR:
         k_work_submit(&i2c3_error_work);
         printk("Failed to init HMC5883 \n");

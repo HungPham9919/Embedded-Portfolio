@@ -46,7 +46,7 @@ extern const struct device *dev_i2c3;
 int drone_i2c_init_hw(const struct device *dev);
 int drone_i2c_clearbus(const struct device *dev);
 int drone_i2c_check_address(const struct device *dev, uint8_t *sensor_out, int nos);
-int i2c_write_data(const struct device *dev, uint8_t slave_id, uint8_t reg, uint16_t value, uint8_t len, struct k_sem *dma_tx_irg_signal);
+int i2c_write_data(const struct device *dev, uint8_t slave_id, uint8_t reg, uint16_t value, uint8_t len);
 int i2c_dma_read_data(const struct device *dev, uint8_t slave_id, uint8_t reg,uint8_t *value, uint8_t len, struct k_sem *dma_irq_signal);
 
 #endif

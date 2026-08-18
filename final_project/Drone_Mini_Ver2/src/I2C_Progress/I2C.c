@@ -151,13 +151,10 @@ int drone_i2c_clearbus(const struct device *dev){
     return 0;
 }
 
-int i2c_write_data(const struct device *dev, uint8_t slave_id, uint8_t reg, 
-                   uint16_t value, uint8_t len, struct k_sem *dma_tx_sem) {
+int i2c_write_data(const struct device *dev, uint8_t slave_id, uint8_t reg, uint16_t value, uint8_t len) {
     if (!dev || !dev->config) return -EINVAL;
     const struct i2c_dev_t *cfg = dev->config;
     I2C_TypeDef *i2c = cfg->regs;
-
-    (void)dma_tx_sem; // Không dùng semaphore DMA trong hàm polling
 
     volatile uint32_t timeout = 10000;
 
@@ -165,7 +162,6 @@ int i2c_write_data(const struct device *dev, uint8_t slave_id, uint8_t reg,
     while ((i2c->SR2 & (1 << 1)) && --timeout);
     if (timeout == 0) goto OFF_I2C;
 
-    // 2. Generation START bit
     i2c->CR1 |= (1 << 8); 
     timeout = 10000;
     while (!(i2c->SR1 & (1 << 0)) && --timeout);
@@ -175,137 +171,143 @@ int i2c_write_data(const struct device *dev, uint8_t slave_id, uint8_t reg,
     i2c->DR = (slave_id << 1); 
     timeout = 10000;
     while (!(i2c->SR1 & (1 << 1)) && --timeout) {
-        if (i2c->SR1 & (1 << 10)) { // AF (Acknowledge Failure)
-            i2c->CR1 |= (1 << 9);   // STOP
-            i2c->SR1 &= ~(1 << 10); // Clear AF
+        if (i2c->SR1 & (1 << 10)) { 
+            i2c->CR1 |= (1 << 9);   
+            i2c->SR1 &= ~(1 << 10);
             return -EIO;
         }
     }
     if (timeout == 0) goto OFF_I2C;
 
-    // 4. Clear ADDR flag (Đọc SR1 rồi đọc SR2)
     (void)i2c->SR1;
     (void)i2c->SR2;
 
-    // 5. Gửi thanh ghi (Register Address)
     i2c->DR = reg;
     timeout = 10000;
-    while (!(i2c->SR1 & (1 << 7)) && --timeout); // Chờ TXE
+    while (!(i2c->SR1 & (1 << 7)) && --timeout);
     if (timeout == 0) goto OFF_I2C;
 
-    // 6. Gửi Byte Payload thứ nhất (LSB)
     i2c->DR = (uint8_t)(value & 0xFF);
     
-    // Nếu len == 2 (ghi 16-bit), tiếp tục chờ TXE và gửi Byte Payload thứ hai (MSB)
     if (len > 1) {
-        timeout = 10000;
-        while (!(i2c->SR1 & (1 << 7)) && --timeout); // Chờ TXE cho LSB bay đi
-        if (timeout == 0) goto OFF_I2C;
-
         i2c->DR = (uint8_t)((value >> 8) & 0xFF);
+        timeout = 10000;
+        while (!(i2c->SR1 & (1 << 7)) && --timeout); 
+        if (timeout == 0) goto OFF_I2C;
+        i2c->DR = (uint8_t)(value & 0xFF);
     }
+    else {
+        i2c->DR = (uint8_t)(value & 0xFF);
+    };
 
-    // 7. Chờ BTF (Byte Transfer Finished) cho byte cuối cùng
     timeout = 10000;
     while (!(i2c->SR1 & (1 << 2)) && --timeout);
     if (timeout == 0) goto OFF_I2C;
 
-    // 8. Phát STOP bit kết thúc thành công
     i2c->CR1 |= (1 << 9); 
     return 0;
 
 OFF_I2C:
-    i2c->CR1 |= (1 << 9); // STOP BIT khi timeout
+    i2c->CR1 |= (1 << 9);
     return -ETIMEDOUT;
 }
 
-int i2c_dma_read_data(const struct device *dev, uint8_t slave_id, uint8_t reg,uint8_t *value, uint8_t len, struct k_sem *dma_irq_signal){
+int i2c_dma_read_data(const struct device *dev, uint8_t slave_id, uint8_t reg, uint8_t *value, uint8_t len, struct k_sem *dma_irq_signal) {
+    k_sem_reset(dma_irq_signal);
+    if (!dev || !dev->config) return 0;
     const struct i2c_dev_t *cfg = dev->config;
     I2C_TypeDef *i2c = cfg->regs;
     DMA_TypeDef *dma = cfg->dma;
     DMA_Stream_TypeDef *dma_stream = cfg->dma_rx_stream;
 
-    if(!dev || !dev->config) return -EINVAL;
-    uint32_t timeout = 10000;
-    while (i2c->SR2 & (1 << 1) && --timeout); // BUSY
-    if(!timeout) goto ERR;
+    volatile int timeout = 10000;
+    while ((i2c->SR2 & (1 << 1)) && --timeout); // BUSY
+    if (timeout == 0) goto OFF_I2C;
 
     timeout = 10000;
     i2c->CR1 |= (1 << 8);
     while (!(i2c->SR1 & (1 << 0)) && --timeout);
-    if(!timeout) goto ERR;
+    if (timeout == 0) goto OFF_I2C;
 
     timeout = 10000;
-    i2c->DR = (slave_id << 1);
-    while(!(i2c->SR1 & (1 << 1)) && --timeout);
-    if(i2c->SR1 & (1 << 10)){
-        i2c->SR1 &=~(1 << 10);
-        goto ERR;
-    };
+    i2c->DR = (slave_id << 1); 
+    while (!(i2c->SR1 & (1 << 1)) && --timeout) {
+        if (i2c->SR1 & (1 << 10)) { // AF
+            i2c->SR1 &= ~(1 << 10);
+            i2c->CR1 |= (1 << 9);
+            return -EIO;
+        }
+    }
+    if (timeout == 0) goto OFF_I2C;
 
-    if(!timeout) goto ERR;
     (void)i2c->SR1;
     (void)i2c->SR2;
 
     i2c->DR = reg;
     timeout = 10000;
-    while(!(i2c->SR1 & (1 << 7)) && --timeout);
-    if(!timeout) goto ERR;
+    while (!(i2c->SR1 & (1 << 7)) && --timeout); // TXE
+    if (timeout == 0) goto OFF_I2C;
 
-    while(!(i2c->SR1 & (1 << 2)) && --timeout);
-    if(!timeout) goto ERR;
+    timeout = 10000;
+    while (!(i2c->SR1 & (1 << 2)) && --timeout); // BTF
+    if (timeout == 0) goto OFF_I2C;
 
+    // 4. Repeated START bit
     timeout = 10000;
     i2c->CR1 |= (1 << 8);
-    while(!(i2c->SR1 & (1 << 0)) && --timeout);
-    if(!timeout) goto ERR;
+    while (!(i2c->SR1 & (1 << 0)) && --timeout);
+    if (timeout == 0) goto OFF_I2C;
 
-    timeout = 10000;
-    i2c->DR = (slave_id << 1) | 1; // read
-    while (!(i2c->SR1 & (1 << 1)) && --timeout);
-    if(i2c->SR1 & (1 << 10)) {
-        i2c->SR1 &= ~(1 << 10);
-        goto ERR;
+    // 5. Send Slave Address (Read mode)
+    i2c->DR = (slave_id << 1) | 1;
+    while (!(i2c->SR1 & ((1 << 1) | (1 << 10))) && --timeout);
+    if (timeout == 0) goto OFF_I2C;
+
+    if (i2c->SR1 & (1 << 10)) {
+        i2c->SR1 &= ~(1 << 10); // AF
+        i2c->CR1 |= (1 << 9);
+        return -EIO;
     }
-    if(!timeout) goto ERR;
-    // dma
 
-    dma_stream->CR &= ~(1 << 0); // off to config
+    dma_stream->CR &= ~(1 << 0); // Off to config
     while (dma_stream->CR & (1 << 0));
 
     dma->LIFCR = 0x0F7D0F7D;
-    dma->HIFCR = 0x0F7D0F7D; // clear
-
+    dma->HIFCR = 0x0F7D0F7D;
     dma_stream->FCR = 0;
 
-    dma_stream->NDTR = 0;
     dma_stream->PAR = (uint32_t)&i2c->DR;
     dma_stream->M0AR = (uint32_t)value;
     dma_stream->NDTR = len;
 
-    dma_stream->CR = (cfg->dma_rx_channel << 25)|(2 << 16)|(1 << 10)|(1 << 4)|(1 << 0);
-    i2c->CR2 |= (1 << 11)|(1 << 12);
+    dma_stream->CR = ((cfg->dma_rx_channel & 0x7) << 25) | (3 << 16) | (1 << 10) | (1 << 4) | (1 << 0);
+    i2c->CR2 |= (1 << 11) | (1 << 12); 
 
-    if(len == 1){
-        i2c->CR2 |= (1 << 11) | (1 << 12); // DMAEN + LAST
+
+    if (len == 1) {
+        i2c->CR1 &= ~(1 << 10); 
+        (void)i2c->SR1;         
+        (void)i2c->SR2;
+        i2c->CR1 |= (1 << 9);   
+    } else {
+        i2c->CR1 |= (1 << 10);  
+        (void)i2c->SR1;         
+        (void)i2c->SR2;
     }
-    else {
-        i2c->CR2 |= (1 << 11);
-    }
 
-    (void)i2c->SR1;
-    (void)i2c->SR2;
-
-    if(k_sem_take(dma_irq_signal,K_FOREVER) == 0){
-        i2c->CR1 |= (1 << 9);
-        i2c->CR2 &= ~(1 << 11) &~(1 << 12);
+    // 8. Chờ Semaphore DMA
+    if (k_sem_take(dma_irq_signal, K_FOREVER) == 0) {
+        if (len > 1) {
+            i2c->CR1 |= (1 << 9);
+        }
+        i2c->CR2 &= ~((1 << 11) | (1 << 12));
     }
 
     return 0;
-ERR:
-    i2c->CR1 |= (1 << 9);
-    i2c->CR2 &= ~((1 << 11) | (1 << 12));
-    return -ETIMEDOUT;
+
+OFF_I2C:
+    i2c->CR1 |= (1 << 9); // STOP
+    return 0;
 }
 
 #define DRONE_I2C_INIT(inst)                                                   \

@@ -73,7 +73,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(10);
     }
     printk("BMI088 OK \n");
-    GPIOC->BSRR = (1 << 1);
     k_event_post(&Initial_State_events,BMI088_Ready); // BMI088
     // HMC5883
     while (1) {
@@ -129,7 +128,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
 
     k_event_post(&Initial_State_events, BMP280_Ready);
     EXTI->IMR |= (1 << 10)|(1 << 13)|(1 << 14); // Enable interrupt
-    // GPIOC->BSRR = (1 << 1); // on led
+    GPIOC->BSRR = (1 << 1); // on led
     // AT24LC
     k_thread_abort(k_current_get());
 }
@@ -151,8 +150,8 @@ void BMI088_Task(void *p1, void *p2, void *p3){     // 200Hz
     while(1){
         k_sem_take(&bmi088_signal,K_FOREVER);
         if(k_mutex_lock(&i2c3_mutex,K_MSEC(1)) == 0){
-            i2c_dma_read_data(dev_i2c3,ACC_ADDR,ACC_Data,acc_data,6, &dma1_stream5_signal);
-            i2c_dma_read_data(dev_i2c3,GYRO_ADDR,GYRO_Data,gyro_data,6,&dma1_stream5_signal);
+            i2c_dma_read_data(dev_i2c3,ACC_ADDR,ACC_Data,acc_data,6, &dma1_stream2_signal);
+            i2c_dma_read_data(dev_i2c3,GYRO_ADDR,GYRO_Data,gyro_data,6,&dma1_stream2_signal);
         }
         k_mutex_unlock(&i2c3_mutex);
         Calculate_And_Filter_Angle(acc_data,gyro_data,dt);
@@ -172,7 +171,7 @@ void HMC5883_Task(void *p1, void *p2, void *p3){
     while (1) {
         k_sem_take(&HMC5883_signal, K_FOREVER);
         if(k_mutex_lock(&i2c3_mutex, K_MSEC(1))){
-            i2c_dma_read_data(dev_i2c3,HMC5883_ADDR, HMC5883_DATA, hmc_data, sizeof(hmc_data), &dma1_stream5_signal);
+            i2c_dma_read_data(dev_i2c3,HMC5883_ADDR, HMC5883_DATA, hmc_data, sizeof(hmc_data), &dma1_stream2_signal);
         }
         k_mutex_unlock(&i2c3_mutex);
         Cal_The_Direction_Of_Yaw(hmc_data);
@@ -227,9 +226,9 @@ void INA226_Task(void *p1, void *p2, void *p3){
     uint8_t limit_check[2] = {0};
     uint8_t bus_volatage[2] = {0};
     while(1){
-        // k_sem_take(&ina226_signal, K_FOREVER);
-        i2c_dma_read_data(dev_i2c1,INA226_ADDR, INA226_Alert_limit, limit_check, 2, &dma1_stream2_signal);
-        i2c_dma_read_data(dev_i2c1,INA226_ADDR, INA226_Bus_Voltage, bus_volatage, sizeof(bus_volatage), &dma1_stream2_signal);
+        k_sem_take(&ina226_signal, K_FOREVER);
+        i2c_dma_read_data(dev_i2c1,INA226_ADDR, INA226_Alert_limit, limit_check, 2, &dma1_stream5_signal);
+        i2c_dma_read_data(dev_i2c1,INA226_ADDR, INA226_Bus_Voltage, bus_volatage, sizeof(bus_volatage), &dma1_stream5_signal);
         int16_t raw_volatge = (int16_t)(bus_volatage[0] << 8 | bus_volatage[1]);
         check_limit = (limit_check[0] << 8 | limit_check[1]);
         Current_voltage = raw_volatge*0.00125f;

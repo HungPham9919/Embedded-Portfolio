@@ -193,7 +193,7 @@ void exti15_10irqhandler(const void *arg){
 	if(EXTI->PR & (1 << 11)){ // PC11
 		EXTI->PR = (1 << 11);
 		exti_11_count++;
-		// k_sem_give(&ina226_signal);
+		k_sem_give(&ina226_signal);
 	}
 
 	if(EXTI->PR & (1 << 13)){ // acc
@@ -225,10 +225,13 @@ void tim3_irqhandler(const void *arg){
 	}
 }
 
+
+volatile uint16_t dma1_stream2_count = 0;
 void dma1_stream2_irqhandler(const void *arg){
 	ARG_UNUSED(arg);
 	if(DMA1->LISR & (1 << 21)){
 	    DMA1->LIFCR = (0x3D << 16); // clear flag
+		dma1_stream2_count++;
 		k_sem_give(&dma1_stream2_signal);
 	}
 }
