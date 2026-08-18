@@ -70,11 +70,11 @@ int BMI088_Calib(void){
 	int16_t ax = 0, ay = 0, az = 0;
 
 	uint8_t gyro[6] = {0};
-	uint8_t accel_data[7] = {0};
+	uint8_t accel_data[6] = {0};
 	for(int i = 0; i < 550; i++){
 		
 		if(i2c_dma_read_data(dev_i2c3,GYRO_ADDR, GYRO_Data, gyro, 6,&dma1_stream2_signal) != 0) goto ERR;
-		if(i2c_dma_read_data(dev_i2c3,ACC_ADDR, ACC_Data, accel_data, 7, &dma1_stream2_signal) != 0) goto ERR;
+		if(i2c_dma_read_data(dev_i2c3,ACC_ADDR, ACC_Data, accel_data, 6, &dma1_stream2_signal) != 0) goto ERR;
 		if(i > 49){
 			gx = (gyro[1] << 8)|gyro[0];
 			gy = (gyro[3] << 8)|gyro[2];
@@ -84,9 +84,9 @@ int BMI088_Calib(void){
 			sum_gy += gy;
 			sum_gz += gz;
 
-			ax = (accel_data[2] << 8) | accel_data[1];
-			ay = (accel_data[4] << 8) | accel_data[3];
-			az = (accel_data[6] << 8) | accel_data[5];
+			ax = (accel_data[1] << 8) | accel_data[0];
+			ay = (accel_data[3] << 8) | accel_data[2];
+			az = (accel_data[5] << 8) | accel_data[4];
 
 			sum_ax += ax;
 			sum_ay += ay;
@@ -106,10 +106,9 @@ int BMI088_Calib(void){
 	return 0;
 
 ERR:
-	k_work_submit(&i2c3_error_work);
-	printk("Failed to Calib BMI088 \n");
+	// k_work_submit(&i2c3_error_work);
+	// printk("Failed to Calib BMI088 \n");
 	return -1;
-
 }
 
 volatile int16_t ACC_X = 0, ACC_Y = 0, ACC_Z = 0;
@@ -224,10 +223,10 @@ int BMI088_Initialize(void){
 	if(i2c_dma_read_data(dev_i2c3,GYRO_ADDR, GYRO_CHIP_ID, &status.gyro_id, 1, &dma1_stream2_signal) != 0) goto ERR;
 	k_msleep(20);
 
-	Check_Status();
+	// Check_Status();
 	return 0;
 ERR:
-	k_work_submit(&i2c3_error_work);
-	printk("Failed to init BMI088 \n");
+	// k_work_submit(&i2c3_error_work);
+	// printk("Failed to init BMI088 \n");
 	return -1;
 }

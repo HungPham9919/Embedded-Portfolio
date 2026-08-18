@@ -6,6 +6,7 @@
 #include "Initialize/Init_reg.h"
 #include "BMI088_Library/bmi088.h"
 #include "PMW3901/pmw3901.h"
+#include "stm32f405xx.h"
 #include "zephyr/kernel.h"
 #include "zephyr/sys/printk.h"
 #include <stdbool.h>
@@ -72,6 +73,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(10);
     }
     printk("BMI088 OK \n");
+    GPIOC->BSRR = (1 << 1);
     k_event_post(&Initial_State_events,BMI088_Ready); // BMI088
     // HMC5883
     while (1) {
@@ -127,7 +129,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
 
     k_event_post(&Initial_State_events, BMP280_Ready);
     EXTI->IMR |= (1 << 10)|(1 << 13)|(1 << 14); // Enable interrupt
-    GPIOC->BSRR = (1 << 1); // on led
+    // GPIOC->BSRR = (1 << 1); // on led
     // AT24LC
     k_thread_abort(k_current_get());
 }
