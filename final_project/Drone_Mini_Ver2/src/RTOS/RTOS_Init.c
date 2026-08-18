@@ -72,7 +72,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(10);
     }
     printk("BMI088 OK \n");
-    bmi_error_init++;
     k_event_post(&Initial_State_events,BMI088_Ready); // BMI088
     // HMC5883
     while (1) {

@@ -1,0 +1,23 @@
+description: Custom Bare-Metal I2C Controller Driver for Drone
+
+compatible: "vnd,write-i2c"
+
+include: [i2c-controller.yaml, pinctrl-device.yaml]
+
+properties:
+  reg:
+    required: true
+  clock-frequency:
+    required: true
+  scl-gpios:
+    type: phandle-array
+    required: false
+  sda-gpios:
+    type: phandle-array
+    required: false
+  dmas:
+    type: phandle-array
+    required: false
+  dma-names:
+    type: string-array
+    required: false

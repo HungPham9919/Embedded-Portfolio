@@ -230,5 +230,4 @@ ERR:
 	k_work_submit(&i2c3_error_work);
 	printk("Failed to init BMI088 \n");
 	return -1;
-
 }

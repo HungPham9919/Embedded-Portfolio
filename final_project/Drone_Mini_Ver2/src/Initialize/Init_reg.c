@@ -19,7 +19,7 @@ void BUS_Init(void){
 	RCC->APB1ENR |= (1 << 0)|(1 << 2); // TIMER 2-4 ENABLE - 84MHz
 	RCC->APB2ENR |= (1 << 14); // SYS ENABLE
 	RCC->APB2ENR |= (1 << 5); // UART 6
-	RCC->AHB1ENR |= (1 << 21); // DMA1 enable
+	// RCC->AHB1ENR |= (1 << 21); // DMA1 enable
 
 	for(volatile int i = 0; i < 100; i++); // wait for stable
 }

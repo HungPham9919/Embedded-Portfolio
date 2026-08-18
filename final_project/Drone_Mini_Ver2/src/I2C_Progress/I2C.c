@@ -2,9 +2,10 @@
 #include "RTOS_Init.h"
 #include "zephyr/kernel.h"
 #include <sys/_stdint.h>
+#include <sys/errno.h>
 
 volatile DRONE_SENSOR drone_sensor_addr;
-#define DT_DRV_COMPAT st_stm32_i2c_v1
+#define DT_DRV_COMPAT vnd_write_i2c
 
 // Lấy thẳng con trở từ device node
 const struct device *dev_i2c1 = DEVICE_DT_GET(DT_NODELABEL(i2c1));
@@ -26,6 +27,9 @@ int drone_i2c_init_hw(const struct device *dev){
     }
 
     (void)RCC->APB1ENR;
+
+    RCC->AHB1ENR |= (1 << 21);
+    (void)RCC->AHB1ENR;
 
     i2c->CR1 |= (1 << 15); 
     k_busy_wait(1000);
@@ -147,94 +151,165 @@ int drone_i2c_clearbus(const struct device *dev){
     return 0;
 }
 
+// int i2c_write_data(const struct device *dev, uint8_t slave_id, uint8_t reg, 
+//                    uint16_t value, uint8_t len, struct k_sem *dma_tx_sem) {
+//     if (!dev || !dev->config || len == 0 || len > 2) return -EINVAL;
+//     const struct i2c_dev_t *cfg = dev->config;
+//     I2C_TypeDef *i2c = cfg->regs;
+//     DMA_TypeDef *dma = cfg->dma;
+//     DMA_Stream_TypeDef *dma_stream = cfg->dma_tx_stream;
+
+//     // 1. Dùng buffer static align 4 bytes tránh trôi bộ nhớ DMA
+//     static volatile uint8_t tx_buf[4] __attribute__((aligned(4)));
+//     tx_buf[0] = reg;
+//     if (len == 1) {
+//         tx_buf[1] = (uint8_t)(value & 0xFF);
+//     } else {
+//         tx_buf[1] = (uint8_t)(value & 0xFF);        // LSB
+//         tx_buf[2] = (uint8_t)((value >> 8) & 0xFF); // MSB
+//     }
+//     uint8_t total_len = len + 1;
+
+//     volatile uint32_t timeout = 10000;
+
+//     // 2. Clear cờ rác cũ trên I2C
+//     (void)i2c->SR1;
+//     (void)i2c->SR2;
+
+//     // 3. Reset DMA Stream TX
+//     dma_stream->CR &= ~(1 << 0); 
+//     while (dma_stream->CR & (1 << 0));
+
+//     dma->LIFCR = 0x0F7D0F7D;
+//     dma->HIFCR = 0x0F7D0F7D;
+
+//     // 4. Chờ Bus Rảnh & Phát START
+//     while ((i2c->SR2 & (1 << 1)) && --timeout);
+//     if (!timeout) goto ERR;
+
+//     i2c->CR1 |= (1 << 10); // ACK Enable
+//     i2c->CR1 |= (1 << 8);  // START Generation
+//     timeout = 10000;
+//     while (!(i2c->SR1 & (1 << 0)) && --timeout);
+//     if (!timeout) goto ERR;
+
+//     // 5. Gửi Slave Address (Write Mode)
+//     i2c->DR = (slave_id << 1) & 0xFE;
+//     timeout = 10000;
+//     while (!(i2c->SR1 & (1 << 1)) && --timeout) {
+//         if (i2c->SR1 & (1 << 10)) { // AF Error
+//             i2c->SR1 &= ~(1 << 10); 
+//             goto ERR; 
+//         }
+//     }
+//     if (!timeout) goto ERR;
+
+//     // 6. Cấu hình DMA Stream cho Transmit
+//     dma_stream->FCR = 0;
+//     dma_stream->PAR = (uint32_t)&i2c->DR;
+//     dma_stream->M0AR = (uint32_t)tx_buf;
+//     dma_stream->NDTR = total_len;
+
+//     uint32_t channel_mask = (cfg->dma_tx_channel & 0x7) << 25;
+//     dma_stream->CR = channel_mask | (1 << 10) | (1 << 6) | (1 << 4);
+
+//     // 7. Bật DMA Stream TRƯỚC
+//     dma_stream->CR |= (1 << 0);
+
+//     // 8. Bật DMA Request trên I2C Hardware
+//     i2c->CR2 |= (1 << 11); // DMAEN = 1
+
+//     // 9. Clear cờ ADDR để bắt đầu kích hoạt DMA kích bus
+//     (void)i2c->SR1;
+//     (void)i2c->SR2;
+
+//     // 10. Chờ Semaphore từ DMA Interrupt (TC)
+//     if (k_sem_take(dma_tx_sem, K_MSEC(50)) != 0) {
+//         goto ERR;
+//     }
+
+//     // 11. BẮT BUỘC: Chờ BTF (Byte Transfer Finished) khẳng định byte cuối đã ra khỏi Shift Register
+//     timeout = 10000;
+//     while (!(i2c->SR1 & (1 << 2)) && --timeout);
+//     if (!timeout) goto ERR;
+
+//     // 12. Phát STOP & Tắt DMAEN
+//     i2c->CR1 |= (1 << 9);   // STOP
+//     i2c->CR2 &= ~(1 << 11); // Disable DMAEN
+//     return 0;
+
+// ERR:
+//     i2c->CR1 |= (1 << 9);   // STOP
+//     i2c->CR2 &= ~(1 << 11); // Disable DMAEN
+//     dma_stream->CR &= ~(1 << 0);
+//     return -ETIMEDOUT;
+// }
+
 int i2c_write_data(const struct device *dev, uint8_t slave_id, uint8_t reg, 
                    uint16_t value, uint8_t len, struct k_sem *dma_tx_sem) {
-    if (!dev || !dev->config || len == 0 || len > 2) return -EINVAL;
+    if (!dev || !dev->config) return 0;
     const struct i2c_dev_t *cfg = dev->config;
     I2C_TypeDef *i2c = cfg->regs;
-    DMA_TypeDef *dma = cfg->dma;
-    DMA_Stream_TypeDef *dma_stream = cfg->dma_tx_stream;
 
-    // Static buffer chứa cả Register Address + Payload (Tối đa 3 bytes: reg, val_lsb, val_msb)
-    static uint8_t tx_buf[3];
-    tx_buf[0] = reg;
-    if (len == 1) {
-        tx_buf[1] = (uint8_t)(value & 0xFF);
-    } else {
-        tx_buf[1] = (uint8_t)(value & 0xFF);        // LSB
-        tx_buf[2] = (uint8_t)((value >> 8) & 0xFF); // MSB
-    }
-    uint8_t total_len = len + 1; // reg + payload
+    (void)dma_tx_sem; // Không dùng semaphore DMA trong hàm polling
 
     volatile uint32_t timeout = 10000;
 
-    // 1. Tắt & Reset DMA Stream hoàn toàn
-    dma_stream->CR &= ~(1 << 0); // Disable Stream
-    while (dma_stream->CR & (1 << 0));
-
-    dma->LIFCR = 0x0F7D0F7D;
-    dma->HIFCR = 0x0F7D0F7D;
-
-    // 2. Chờ BUSY & Phát START
+    // 1. Chờ BUSY
     while ((i2c->SR2 & (1 << 1)) && --timeout);
-    if (!timeout) goto ERR;
+    if (timeout == 0) goto OFF_I2C;
 
-    i2c->CR1 |= (1 << 10); // ACK Enable
-    i2c->CR1 |= (1 << 8);  // START Generation
+    // 2. Generation START bit
+    i2c->CR1 |= (1 << 8); 
     timeout = 10000;
     while (!(i2c->SR1 & (1 << 0)) && --timeout);
-    if (!timeout) goto ERR;
+    if (timeout == 0) goto OFF_I2C;
 
-    // 3. Gửi Slave Address (Write Mode)
-    i2c->DR = (slave_id << 1) & 0xFE;
+    // 3. Gửi Slave Address (8-bit address: W Mode)
+    i2c->DR = (slave_id << 1); 
     timeout = 10000;
     while (!(i2c->SR1 & (1 << 1)) && --timeout) {
         if (i2c->SR1 & (1 << 10)) { // AF (Acknowledge Failure)
-            i2c->SR1 &= ~(1 << 10); 
-            goto ERR; 
+            i2c->CR1 |= (1 << 9);   // STOP
+            i2c->SR1 &= ~(1 << 10); // Clear AF
+            return -EIO;
         }
     }
-    if (!timeout) goto ERR;
+    if (timeout == 0) goto OFF_I2C;
 
-    // 4. Cấu hình DMA Stream cho TRỌN BỘ Transmit (Reg + Data)
-    dma_stream->FCR = 0;
-    dma_stream->PAR = (uint32_t)&i2c->DR;
-    dma_stream->M0AR = (uint32_t)tx_buf;
-    dma_stream->NDTR = total_len;
-
-    // Channel | MINC (1<<10) | DIR: Mem-to-Periph (1<<6) | TCIE (1<<4)
-    // LƯU Ý: Chưa bật EN (bit 0) ở đây!
-    dma_stream->CR = (cfg->dma_tx_channel << 25) | (1 << 10) | (1 << 6) | (1 << 4);
-
-    // 5. Bật I2C DMA Request trước
-    i2c->CR2 |= (1 << 11); // DMAEN = 1
-
-    // 6. Clear cờ ADDR bằng cách đọc SR1 -> SR2
+    // 4. Clear ADDR flag (Đọc SR1 rồi đọc SR2)
     (void)i2c->SR1;
     (void)i2c->SR2;
 
-    // 7. Bật DMA Stream NGAY SẢU KHI Clear ADDR
-    dma_stream->CR |= (1 << 0); // EN = 1
+    // 5. Gửi thanh ghi (Register Address)
+    i2c->DR = reg;
+    timeout = 10000;
+    while (!(i2c->SR1 & (1 << 7)) && --timeout); // Chờ TXE
+    if (timeout == 0) goto OFF_I2C;
 
-    // 8. Chờ Semaphore từ DMA Interrupt ISR
-    if (k_sem_take(dma_tx_sem, K_MSEC(50)) != 0) {
-        goto ERR;
+    // 6. Gửi Byte Payload thứ nhất (LSB)
+    i2c->DR = (uint8_t)(value & 0xFF);
+    
+    // Nếu len == 2 (ghi 16-bit), tiếp tục chờ TXE và gửi Byte Payload thứ hai (MSB)
+    if (len > 1) {
+        timeout = 10000;
+        while (!(i2c->SR1 & (1 << 7)) && --timeout); // Chờ TXE cho LSB bay đi
+        if (timeout == 0) goto OFF_I2C;
+
+        i2c->DR = (uint8_t)((value >> 8) & 0xFF);
     }
 
-    // 9. Chờ cờ BTF (Byte Transfer Finished) trên I2C Hardware
+    // 7. Chờ BTF (Byte Transfer Finished) cho byte cuối cùng
     timeout = 10000;
     while (!(i2c->SR1 & (1 << 2)) && --timeout);
-    if (!timeout) goto ERR;
+    if (timeout == 0) goto OFF_I2C;
 
-    // 10. Phát STOP & Tắt DMA
-    i2c->CR1 |= (1 << 9);   // STOP
-    i2c->CR2 &= ~(1 << 11); // Disable DMAEN
+    // 8. Phát STOP bit kết thúc thành công
+    i2c->CR1 |= (1 << 9); 
     return 0;
 
-ERR:
-    i2c->CR1 |= (1 << 9);   // STOP
-    i2c->CR2 &= ~(1 << 11); // Disable DMAEN
-    dma_stream->CR &= ~(1 << 0);
+OFF_I2C:
+    i2c->CR1 |= (1 << 9); // STOP BIT khi timeout
     return -ETIMEDOUT;
 }
 
@@ -360,6 +435,7 @@ ERR:
                           50, NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(DRONE_I2C_INIT)
+
 
 
 
