@@ -17,8 +17,7 @@ int HMC5883_Initialized(void){
     if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_REG_B, 0x20,1) != 0) goto ERR; // Default gain
     if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_MODE, 0x00,1) != 0) goto ERR; // Continuous mode
     ERR:
-        k_work_submit(&i2c3_error_work);
-        printk("Failed to init HMC5883 \n");
+        return -1;
     return 0;
 }
 
@@ -51,11 +50,11 @@ int HMC5883_Calibration(void){
     hmc_offset.mag_x_os = (float)((x_max + x_min)/2.0f);
     hmc_offset.mag_z_os = (float)((z_max + z_min)/2.0f);
     hmc_offset.mag_y_os = (float)((y_max + y_min)/2.0f);
-
-    ERR:
-        k_work_submit(&i2c1_error_work);
-        printk("Failed to cablib HMC5883 \n");
     return 0;
+
+ERR:
+    return -1;
+
 }
 
 void Cal_The_Direction_Of_Yaw(uint8_t *data){

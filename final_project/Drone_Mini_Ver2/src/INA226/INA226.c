@@ -22,9 +22,10 @@ int INA226_Initialized(void){
     if(i2c_dma_read_data(dev_i2c1,INA226_ADDR, INA226_DIE_ID, ID, sizeof(ID), &dma1_stream5_signal) != 0) goto ERR;
     INA226_ID = (uint16_t)((ID[0] << 8) | ID[1]);
     k_msleep(5);
-
-    ERR:
-    printk("INA226 Initialized Error \n");
-        k_work_submit(&i2c1_error_work);
     return 0;
+
+ERR:
+    printk("INA226 Initialized Error \n");
+    return -1;
+
 }

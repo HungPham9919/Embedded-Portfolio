@@ -30,8 +30,8 @@ void i2c3_error_work_handler(struct k_work *work){
 
 void Start_Default_Task(void *p1, void *p2, void *p3){
     uint8_t sensors_addr[7] = {0};
+    k_msleep(1000);
     while(1){
-
         if(drone_i2c_check_address(dev_i2c1, sensors_addr, 3) == 0) break;
         else {
             k_work_submit(&i2c1_error_work);
@@ -57,6 +57,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     drone_sensor_addr.sensor4 = sensors_addr[3];
     drone_sensor_addr.sensor5 = sensors_addr[4];
     drone_sensor_addr.sensor6 = sensors_addr[5];
+    drone_sensor_addr.sensor7 = sensors_addr[6];
 
     printk("Found all Sensor \n");
 
@@ -90,19 +91,21 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
 
     
     // PMW3901
-    // while (1) {
-    //     if(pmw3901_error_init > 10){
-    //         // call status
-    //         break;
-    //     }
-    //     optical_flow_sensor();
-    //     if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
-    //         k_work_submit(&pmw3901_work);
-    //     }
-    //     k_msleep(5);
-    // }
 
-    // pmw3901_init_registers();
+    while (1) {
+        if(pmw3901_error_init > 10){
+            // call status
+            printk("PMW3901 Failed to init \n");
+            break;
+        }
+        optical_flow_sensor();
+        if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
+            k_work_submit(&pmw3901_work);
+        }
+        pmw3901_init_registers();
+        k_msleep(5);
+    }
+
     // k_event_post(&Initial_State_events, PMW3901_Ready);
 
     // INA226
@@ -115,6 +118,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(5);
     }
     k_event_post(&Initial_State_events, INA226_Ready);
+    printk("INA226 succeeded to init \n");
 
     // BMP280
     while (1) {
@@ -127,6 +131,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     }
 
     k_event_post(&Initial_State_events, BMP280_Ready);
+    printk("BMP280 succeeded to init \n");
     EXTI->IMR |= (1 << 10)|(1 << 13)|(1 << 14); // Enable interrupt
     GPIOC->BSRR = (1 << 1); // on led
     // AT24LC

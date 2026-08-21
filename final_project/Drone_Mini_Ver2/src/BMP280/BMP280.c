@@ -16,11 +16,11 @@ int BMP280_Initialized(void){
 	k_msleep(5);
 	if(i2c_dma_read_data(dev_i2c1,BMP280_ADDR, BMP280_ID, &bmpid, 1, &dma1_stream5_signal) != 0) goto ERR; // Read the ID: 58
     BMP_ID = bmpid;
-
-	ERR:
-		k_work_submit(&i2c1_error_work);
-		printk("Failed to init BMP280 \n");
 	return 0;
+ERR:
+	return -1;
+	printk("Failed to init BMP280 \n");
+
 }
 // Stream 5 for i2c1
 
@@ -42,10 +42,10 @@ int BMP280_Calibration(void){
 	calib.dig_P8 = (int16_t)(buffer[20] | (buffer[21] << 8));
 	calib.dig_P9 = (int16_t)(buffer[22] | (buffer[23] << 8));
 
-	ERR:
-		k_work_submit(&i2c1_error_work);
-		printk("Failed to calib BMP280 \n");
 	return 0;
+ERR:
+	return -1;
+	printk("Failed to init BMP280 \n");
 }
 
 int32_t t_fine;

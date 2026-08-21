@@ -3,7 +3,6 @@
 
 #include <zephyr/kernel.h>
 #include <stdint.h>
-#include <zephyr/shell/shell.h>
-
+void init_usb_shell(void);
 
 #endif
