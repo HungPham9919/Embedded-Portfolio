@@ -46,7 +46,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
 
     while(1){
 
-        if(drone_i2c_check_address(dev_i2c3, &sensors_addr[3], 3) == 0) break;
+        if(drone_i2c_check_address(dev_i2c3, &sensors_addr[3], 4) == 0) break;
         else {
             k_work_submit(&i2c3_error_work);
             if(i2c3_error_count > 50) break;
@@ -92,19 +92,19 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     
     // PMW3901
 
-    while (1) {
-        if(pmw3901_error_init > 10){
-            // call status
-            printk("PMW3901 Failed to init \n");
-            break;
-        }
-        optical_flow_sensor();
-        if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
-            k_work_submit(&pmw3901_work);
-        }
-        pmw3901_init_registers();
-        k_msleep(5);
-    }
+    // while (1) {
+    //     if(pmw3901_error_init > 10){
+    //         // call status
+    //         printk("PMW3901 Failed to init \n");
+    //         break;
+    //     }
+    //     optical_flow_sensor();
+    //     if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
+    //         k_work_submit(&pmw3901_work);
+    //     }
+    //     pmw3901_init_registers();
+    //     k_msleep(5);
+    // }
 
     // k_event_post(&Initial_State_events, PMW3901_Ready);
 

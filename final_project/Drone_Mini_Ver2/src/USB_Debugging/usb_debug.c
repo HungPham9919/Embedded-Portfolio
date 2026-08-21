@@ -1,11 +1,12 @@
 #include "usb_debug.h"
 #include <zephyr/shell/shell.h>
-#include "I2C.h"
+#include "I2C_Progress/I2C.h"
 #include "pmw3901.h"
 #include "zephyr/usb/usb_device.h"
 #include <zephyr/drivers/uart.h>
 #include "stdio.h"
 #include "BMI088_Library/bmi088.h"
+#include "RTOS/RTOS_Init.h"
 
 void init_usb_shell(void){
     // const struct device *dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
@@ -22,6 +23,7 @@ static int cmd_sensor_status(const struct shell *sh, size_t argc, char **argv){
     shell_print(sh, "MAG_2:   0x%02X", drone_sensor_addr.sensor5); // 0x1E
     shell_print(sh, "VL53L1X: 0x%02X", drone_sensor_addr.sensor6); // 0x29
     shell_print(sh, "GYRO/IMU:0x%02X", drone_sensor_addr.sensor7); // 0x69
+    shell_print(sh, "i2c3_err: %d", i2c3_error_count);
     return 0;
 }
 

@@ -21,7 +21,7 @@ int main(void)
     drone_i2c_clearbus(dev_i2c1);
     USART_Configuration();
     
-    Optical_Flow_Init();
+    // Optical_Flow_Init();
 
     for(int i = 0; i < 2;i++) {
         GPIOC->ODR ^= (1 << 1); // toggle led
