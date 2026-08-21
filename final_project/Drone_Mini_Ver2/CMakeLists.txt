@@ -24,6 +24,7 @@ zephyr_include_directories(
     src/I2C1_Process_Data
     src/Ranging_Sensor
     src/Ranging_Sensor/core/inc
+    src/USB_Debugging
 )
 
 # Khai báo nguồn file .c
@@ -45,6 +46,7 @@ file(GLOB_RECURSE ALL_SOURCES
     I2C1_Process_Data/*.c
     Ranging_Sensor/*.c
     Ranging_Sensor/core/src/*.c
+    USB_Debugging/*.c
 )
 
 target_sources(app PRIVATE ${ALL_SOURCES})
