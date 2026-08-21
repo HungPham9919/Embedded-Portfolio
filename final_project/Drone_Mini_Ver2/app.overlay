@@ -23,3 +23,21 @@
     apb1-prescaler = <4>;          /* PCLK1 = 42 MHz (Dành cho I2C) */
     apb2-prescaler = <2>;          /* PCLK2 = 84 MHz */
 };
+
+
+/ {
+    chosen {
+        /* Chỉ định Zephyr Shell và Console sử dụng Virtual COM Port qua USB */
+        zephyr,shell-uart = &cdc_acm_uart0;
+        zephyr,console = &cdc_acm_uart0;
+    };
+};
+
+&usbotg_fs {
+    status = "okay";
+
+    /* 2. Khai bao Virtual COM Port (CDC ACM) lam con cua usbotg_fs */
+    cdc_acm_uart0: cdc_acm_uart0 {
+        compatible = "zephyr,cdc-acm-uart";
+    };
+};

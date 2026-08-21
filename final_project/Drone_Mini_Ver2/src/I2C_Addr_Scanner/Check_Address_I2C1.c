@@ -187,6 +187,7 @@ int Check_Address_I2C3(void){
     drone_sensor_addr.sensor4 = 0;
     drone_sensor_addr.sensor5 = 0;
 	drone_sensor_addr.sensor6 = 0;
+	drone_sensor_addr.sensor7 = 0;
 
     int nos = 0;
     for(int adr = 1; adr < 128; adr++){
@@ -215,7 +216,8 @@ int Check_Address_I2C3(void){
 
 			if(nos == 1) drone_sensor_addr.sensor4 = adr;
 			else if (nos == 2) drone_sensor_addr.sensor5 = adr;
-			else drone_sensor_addr.sensor6 = adr;
+			else if(nos == 3) drone_sensor_addr.sensor6 = adr;
+			else drone_sensor_addr.sensor7 = adr;
 
             (void)I2C3->SR1;
             (void)I2C3->SR2;
