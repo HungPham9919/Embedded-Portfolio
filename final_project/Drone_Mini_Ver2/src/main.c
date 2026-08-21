@@ -6,12 +6,12 @@
 #include "Radio_communication/Radio_Communication.h"
 #include "I2C_Addr_Scanner/Check_Address_I2C1.h"
 #include "PMW3901/pmw3901.h"
+#include "USB_Debugging/usb_debug.h"
 
 int main(void)
 {
-    int ret = usb_enable(NULL);
-    if(ret != 0) return 0;
 
+    init_usb_shell();
     BUS_Init();
 
     I2C3_ClearBus();
