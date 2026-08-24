@@ -97,7 +97,7 @@ int drone_i2c_check_address(const struct device *dev, uint8_t *sensor_out, int n
         }
 
         i2c->CR1 |= (1 << 9);
-        k_busy_wait(100);
+        k_busy_wait(1000);
     }
 
     return (found == nos) ? 0 : -ENODEV;

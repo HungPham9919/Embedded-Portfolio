@@ -30,7 +30,6 @@ void i2c3_error_work_handler(struct k_work *work){
 
 void Start_Default_Task(void *p1, void *p2, void *p3){
     uint8_t sensors_addr[7] = {0};
-    k_msleep(1000);
     while(1){
         if(drone_i2c_check_address(dev_i2c1, sensors_addr, 3) == 0) break;
         else {
@@ -86,26 +85,26 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(5);
     }
     k_event_post(&Initial_State_events, HMC5883_Ready);
-    
+    if(hmc_error_init < 10) printk("HMC5883 OK \n");
+    else printk("HMC5883 Failed \n");
     // Vl53L1X
 
-    
     // PMW3901
+    while (1) {
+        if(pmw3901_error_init > 10){
+            // call status
+            break;
+        }
+        optical_flow_sensor();
+        if(product_id != 0x49 || inverse_product != 0xB6){
+            k_work_submit(&pmw3901_work);
+        }
+        // pmw3901_init_registers();
+        k_msleep(5);
+    }
 
-    // while (1) {
-    //     if(pmw3901_error_init > 10){
-    //         // call status
-    //         printk("PMW3901 Failed to init \n");
-    //         break;
-    //     }
-    //     optical_flow_sensor();
-    //     if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
-    //         k_work_submit(&pmw3901_work);
-    //     }
-    //     pmw3901_init_registers();
-    //     k_msleep(5);
-    // }
-
+    if(pmw3901_error_init < 10) printk("PMW3901 OK \n");
+    else printk("PMW3901 Failed \n");
     // k_event_post(&Initial_State_events, PMW3901_Ready);
 
     // INA226
@@ -118,7 +117,9 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(5);
     }
     k_event_post(&Initial_State_events, INA226_Ready);
-    printk("INA226 succeeded to init \n");
+
+    if(ina_error_init < 10) printk("INA226 OK \n");
+    else printk("INA226 Failed \n");
 
     // BMP280
     while (1) {
@@ -131,7 +132,11 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     }
 
     k_event_post(&Initial_State_events, BMP280_Ready);
-    printk("BMP280 succeeded to init \n");
+
+
+    if(bmp_error_init < 10) printk("BMP280 OK \n");
+    else printk("BMP280 Failed \n");
+
     EXTI->IMR |= (1 << 10)|(1 << 13)|(1 << 14); // Enable interrupt
     GPIOC->BSRR = (1 << 1); // on led
     // AT24LC
@@ -186,9 +191,9 @@ void HMC5883_Task(void *p1, void *p2, void *p3){
 struct k_work pmw3901_work;
 void pmw3901_work_handler(struct k_work *work){
     pmw3901_error_init++;
-    SPI2->CR1 &= ~(1 << 0);
-    k_msleep(10);
-    SPI2->CR1 |= (1 << 0);
+    // SPI2->CR1 &= ~(1 << 0);
+    // k_msleep(10);
+    // SPI2->CR1 |= (1 << 0);
 }
 
 void PMW3901_Task(void *p1, void *p2, void *p3){ // SPI

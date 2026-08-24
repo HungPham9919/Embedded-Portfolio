@@ -9,21 +9,23 @@
 #include "RTOS/RTOS_Init.h"
 
 void init_usb_shell(void){
-    // const struct device *dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
     if(usb_enable(NULL) != 0) return;
-    // uint32_t dtr = 0;
-    // while(!dtr){
-    //     uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
-    //     k_msleep(100);
-    // }
 }
 
 static int cmd_sensor_status(const struct shell *sh, size_t argc, char **argv){
+
+    shell_print(sh, "INA226: 0x%02X", drone_sensor_addr.sensor1); // 0x40
+    shell_print(sh, "AT24LC: 0x%02X", drone_sensor_addr.sensor2); // 0x50
+    shell_print(sh, "BMP280: 0x%02X", drone_sensor_addr.sensor3); // 0x76
+
     shell_print(sh, "ACC/MAG: 0x%02X", drone_sensor_addr.sensor4); // 0x18
     shell_print(sh, "MAG_2:   0x%02X", drone_sensor_addr.sensor5); // 0x1E
     shell_print(sh, "VL53L1X: 0x%02X", drone_sensor_addr.sensor6); // 0x29
     shell_print(sh, "GYRO/IMU:0x%02X", drone_sensor_addr.sensor7); // 0x69
-    shell_print(sh, "i2c3_err: %d", i2c3_error_count);
+    shell_print(sh, "PMW3901:0x%02X || 0x%02X", product_id, inverse_product);
+    shell_print(sh, "PMW3901 Error: %d", pmw3901_error_init);
+    shell_print(sh, "INA Error: %d", ina_error_init);
+    shell_print(sh, "BMP280 Error: %d", bmp_error_init);
     return 0;
 }
 

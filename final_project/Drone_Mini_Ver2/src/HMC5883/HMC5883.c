@@ -16,9 +16,11 @@ int HMC5883_Initialized(void){
     if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_REG_A, 0x78,1) != 0) goto ERR;
     if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_REG_B, 0x20,1) != 0) goto ERR; // Default gain
     if(i2c_write_data(dev_i2c1,HMC5883_ADDR, HMC5883_MODE, 0x00,1) != 0) goto ERR; // Continuous mode
-    ERR:
-        return -1;
     return 0;
+    
+ERR:
+    return -1;
+
 }
 
 int HMC5883_Calibration(void){
