@@ -19,10 +19,17 @@ void init_usb_shell(void){
 }
 
 static int cmd_sensor_status(const struct shell *sh, size_t argc, char **argv){
+
+    shell_print(sh, "INA226: 0x%02X", drone_sensor_addr.sensor1); // 0x40
+    shell_print(sh, "AT24LC: 0x%02X", drone_sensor_addr.sensor2); // 0x50
+    shell_print(sh, "BMP280: 0x%02X", drone_sensor_addr.sensor3); // 0x76
+
     shell_print(sh, "ACC/MAG: 0x%02X", drone_sensor_addr.sensor4); // 0x18
     shell_print(sh, "MAG_2:   0x%02X", drone_sensor_addr.sensor5); // 0x1E
     shell_print(sh, "VL53L1X: 0x%02X", drone_sensor_addr.sensor6); // 0x29
     shell_print(sh, "GYRO/IMU:0x%02X", drone_sensor_addr.sensor7); // 0x69
+    shell_print(sh, "PMW3901:0x%02X || 0x%02X", product_id, inverse_product);
+
     return 0;
 }
 
