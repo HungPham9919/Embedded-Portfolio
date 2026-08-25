@@ -16,12 +16,11 @@ void dma1_stream6_irqhandler(const void *arg);
 
 void BUS_Init(void){
 	RCC->AHB1ENR |= (1 << 1)|(1 << 0)|(1 << 2); // GPIOB, A,C
-	RCC->APB1ENR |= (1 << 0)|(1 << 2); // TIMER 2-4 ENABLE - 84MHz
-	RCC->APB2ENR |= (1 << 14); // SYS ENABLE
-	RCC->APB2ENR |= (1 << 5); // UART 6
-	// RCC->AHB1ENR |= (1 << 21); // DMA1 enable
-
-	for(volatile int i = 0; i < 100; i++); // wait for stable
+	(void)RCC->AHB1ENR;
+	RCC->APB1ENR |= (1 << 0)|(1 << 2)|(1 << 14); // TIMER 2-4 ENABLE - 84MHz - SPI2
+	(void)RCC->APB1ENR;
+	RCC->APB2ENR |= (1 << 14)|(1 << 5); // SYS ENABLE || UART 6
+	(void)RCC->APB2ENR;
 }
 
 void Init_The_Config_Of_Drone(void){

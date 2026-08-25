@@ -41,7 +41,6 @@ static const uint8_t pmw3901_bitcraze_added[][2] = {
 };
 
 void Optical_Flow_Init(void) {
-    RCC->APB1ENR |= (1 << 14); // SPI2
     // 2. PB13 SCK || PB14 - MISO || PB15-MOSI
     GPIOB->MODER &= ~(3 << 26) &~(3 << 28) &~(3 << 30);
     GPIOB->MODER |=  (2 << 26)|(2 << 28)|(2 << 30);
@@ -114,27 +113,71 @@ void dma1_stream3_irqhandler(const void *arg){
     }
 }
 
-uint8_t SPI_Transfer(uint8_t data){
-    while (!(SPI2->SR & (1 << 1)));
-    *(volatile uint8_t *)&SPI2->DR = data;
-    while (!(SPI2->SR & (1 << 0)));
-    return *(volatile uint8_t *)&SPI2->DR;
+// uint8_t SPI_Transfer(uint8_t data){
+//     while (!(SPI2->SR & (1 << 1)));
+//     *(volatile uint8_t *)&SPI2->DR = data;
+//     while (!(SPI2->SR & (1 << 0)));
+//     return *(volatile uint8_t *)&SPI2->DR;
+// }
+
+int SPI_Transfer_Safe(uint8_t data_out, uint8_t *data_in) {
+    uint32_t timeout = 10000; 
+    // Chờ TXE
+    while (!(SPI2->SR & (1 << 1))) {
+        if (--timeout == 0) return -1; 
+    }
+    *(volatile uint8_t *)&SPI2->DR = data_out;
+    timeout = 10000;
+    while (!(SPI2->SR & (1 << 0))) {
+        if (--timeout == 0) return -1; 
+    }
+    uint8_t dummy = *(volatile uint8_t *)&SPI2->DR;
+    if (data_in) {
+        *data_in = dummy;
+    }
+    return 0; 
 }
 
 // Hàm đọc 1 thanh ghi từ PMW3901
 uint8_t pmw3901_read_reg(uint8_t reg_addr) {
     uint8_t val = 0;
     reg_addr &= 0x7F; // bit 7 = 0 - Read
+    
     GPIOB->BSRR = (1 << 28);
-    SPI_Transfer(reg_addr);
+    SPI_Transfer_Safe(reg_addr, NULL);
     k_usleep(50);
-    val = SPI_Transfer(0);
+    SPI_Transfer_Safe(0x00, &val);
     GPIOB->BSRR = (1 << 12);
     k_usleep(200);
+    
     return val;
 }
 
-// Hàm kiểm tra sensor
+int pmw3901_write_reg(uint8_t reg_addr, uint8_t data) {
+    reg_addr |= 0x80; // Bit 7 = 1 cho WRITE
+    
+    GPIOB->BSRR = (1 << 28); // CS Low
+    k_usleep(10);            // Chờ CS ổn định
+
+    if (SPI_Transfer_Safe(reg_addr, NULL) != 0) {
+        GPIOB->BSRR = (1 << 12); // Luôn phải giải phóng CS nếu lỗi
+        return -1;
+    }
+
+    k_usleep(20); 
+
+    if (SPI_Transfer_Safe(data, NULL) != 0) {
+        GPIOB->BSRR = (1 << 12); // Luôn phải giải phóng CS nếu lỗi
+        return -1;
+    }
+
+    k_usleep(10);
+    GPIOB->BSRR = (1 << 12); // CS High
+    k_usleep(100);        
+    
+    return 0;
+}
+
 volatile uint8_t product_id = 0, revision_id = 1,inverse_product = 0;
 void optical_flow_sensor(void) {
     // Reset SPI bus state bằng cách nhấp nháy CS
@@ -153,16 +196,9 @@ void optical_flow_sensor(void) {
     k_usleep(10);
 }
 
-void pmw3901_write_reg(uint8_t reg_addr, uint8_t data) {
-    reg_addr |= 0x80; // Bit 7 = 1 cho thao tác WRITE
-    GPIOB->BSRR = (1 << 28); // CS Low
-    SPI_Transfer(reg_addr);
-    SPI_Transfer(data);
-    GPIOB->BSRR = (1 << 12); // CS High
-    k_usleep(20);
-}
-
 void pmw3901_init_registers(void) {
+    // pmw3901_write_reg(0x7F, 0x00);
+
     pmw3901_write_reg(PMW3901_RST, 0x5A);
     k_msleep(5);
 
@@ -177,21 +213,22 @@ void pmw3901_init_registers(void) {
     for(uint8_t i = 0; i < bit_size;i++){
         pmw3901_write_reg(pmw3901_bitcraze_added[i][0], pmw3901_bitcraze_added[i][1]);
     }
+    k_msleep(100);
 }
 
-void pmw3901_read_motion_burst(uint8_t *buffer) {
-    GPIOB->BSRR = (1 << 28); // CS Low
-    k_usleep(20);
+// void pmw3901_read_motion_burst(uint8_t *buffer) {
+//     GPIOB->BSRR = (1 << 28); // CS Low
+//     k_usleep(20);
 
-    SPI_Transfer(PMW3901_MOTION_BRUST);
-    k_usleep(150);
-    for (int i = 0; i < 12; i++) {
-        buffer[i] = SPI_Transfer(0x00);
-    }
-    k_usleep(50);
-    GPIOB->BSRR = (1 << 12); // CS High
-    k_usleep(200);
-}
+//     SPI_Transfer(PMW3901_MOTION_BRUST);
+//     k_usleep(150);
+//     for (int i = 0; i < 12; i++) {
+//         buffer[i] = SPI_Transfer(0x00);
+//     }
+//     k_usleep(50);
+//     GPIOB->BSRR = (1 << 12); // CS High
+//     k_usleep(200);
+// }
 
         // // 1. Đọc burst trực tiếp mỗi chu kỳ mà không cần chờ PC2 == 0
         // pmw3901_read_motion_burst(burst_data);

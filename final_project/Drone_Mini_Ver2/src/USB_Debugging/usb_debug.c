@@ -26,6 +26,8 @@ static int cmd_sensor_status(const struct shell *sh, size_t argc, char **argv){
     shell_print(sh, "PMW3901 Error: %d", pmw3901_error_init);
     shell_print(sh, "INA Error: %d", ina_error_init);
     shell_print(sh, "BMP280 Error: %d", bmp_error_init);
+    shell_print(sh, "i2c3 Error: %d", i2c3_error_count);
+    shell_print(sh, "hmc5883 Error: %d", hmc_error_init);
     return 0;
 }
 

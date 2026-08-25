@@ -45,7 +45,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
 
     while(1){
 
-        if(drone_i2c_check_address(dev_i2c3, &sensors_addr[3], 4) == 0) break;
+        if(drone_i2c_check_address(dev_i2c3, &sensors_addr[3], 3) == 0) break;
         else {
             k_work_submit(&i2c3_error_work);
             if(i2c3_error_count > 50) break;
@@ -74,6 +74,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     }
     printk("BMI088 OK \n");
     k_event_post(&Initial_State_events,BMI088_Ready); // BMI088
+
     // HMC5883
     while (1) {
         if(hmc_error_init > 10){
@@ -82,30 +83,12 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         if(HMC5883_Initialized() == 0 && HMC5883_Calibration() == 0) break;
 
         k_work_submit(&hmc5883_work);
-        k_msleep(5);
+        k_msleep(10);
     }
     k_event_post(&Initial_State_events, HMC5883_Ready);
     if(hmc_error_init < 10) printk("HMC5883 OK \n");
     else printk("HMC5883 Failed \n");
     // Vl53L1X
-
-    // PMW3901
-    while (1) {
-        if(pmw3901_error_init > 10){
-            // call status
-            break;
-        }
-        optical_flow_sensor();
-        if(product_id != 0x49 || inverse_product != 0xB6){
-            k_work_submit(&pmw3901_work);
-        }
-        // pmw3901_init_registers();
-        k_msleep(5);
-    }
-
-    if(pmw3901_error_init < 10) printk("PMW3901 OK \n");
-    else printk("PMW3901 Failed \n");
-    // k_event_post(&Initial_State_events, PMW3901_Ready);
 
     // INA226
     while(1){
@@ -136,6 +119,23 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
 
     if(bmp_error_init < 10) printk("BMP280 OK \n");
     else printk("BMP280 Failed \n");
+
+        // PMW3901
+    while (1) {
+        if(pmw3901_error_init > 10){
+            // call status
+            break;
+        }
+        optical_flow_sensor();
+        if(product_id == 0x49 && inverse_product == 0xB6) break;
+        k_work_submit(&pmw3901_work);
+        k_msleep(5);
+    }
+    pmw3901_init_registers();
+    if(pmw3901_error_init < 10) printk("PMW3901 OK \n");
+    else printk("PMW3901 Failed \n");
+    // k_event_post(&Initial_State_events, PMW3901_Ready);
+
 
     EXTI->IMR |= (1 << 10)|(1 << 13)|(1 << 14); // Enable interrupt
     GPIOC->BSRR = (1 << 1); // on led
@@ -191,9 +191,9 @@ void HMC5883_Task(void *p1, void *p2, void *p3){
 struct k_work pmw3901_work;
 void pmw3901_work_handler(struct k_work *work){
     pmw3901_error_init++;
-    // SPI2->CR1 &= ~(1 << 0);
-    // k_msleep(10);
-    // SPI2->CR1 |= (1 << 0);
+    SPI2->CR1 &= ~(1 << 0);
+    k_msleep(10);
+    SPI2->CR1 |= (1 << 0);
 }
 
 void PMW3901_Task(void *p1, void *p2, void *p3){ // SPI
