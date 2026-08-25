@@ -1,4 +1,6 @@
 #include <zephyr/dt-bindings/pinctrl/stm32-pinctrl.h>
+#include <zephyr/dt-bindings/dma/stm32_dma.h>
+
 
 &clk_hse {
     clock-frequency = <8000000>;
@@ -22,6 +24,47 @@
     ahb-prescaler = <1>;           /* HCLK = 168 MHz */
     apb1-prescaler = <4>;          /* PCLK1 = 42 MHz (Dành cho I2C) */
     apb2-prescaler = <2>;          /* PCLK2 = 84 MHz */
+};
+
+/ {
+    aliases {
+        drone-i2c3 = &i2c3;
+        drone-i2c1 = &i2c1;
+    };
+};
+
+&dma1 {
+    status = "okay";
+};
+
+&i2c3 {
+    status = "okay";
+    compatible = "vnd,write-i2c";
+    pinctrl-0 = <&i2c3_scl_pa8 &i2c3_sda_pc9>;
+    pinctrl-names = "default";
+    clock-frequency = <I2C_BITRATE_FAST>;
+
+    scl-gpios = <&gpioa 8 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+    sda-gpios = <&gpioc 9 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+
+    dmas = <&dma1 2 3 STM32_DMA_PERIPH_TO_MEMORY STM32_DMA_PRIORITY_HIGH>,
+           <&dma1 4 3 STM32_DMA_MEMORY_TO_PERIPH STM32_DMA_PRIORITY_HIGH>;
+    dma-names = "rx", "tx";
+};
+
+&i2c1 {
+    status = "okay";
+    compatible = "vnd,write-i2c";
+    pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
+    pinctrl-names = "default";
+    clock-frequency = <I2C_BITRATE_FAST>;
+
+    scl-gpios = <&gpiob 6 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+    sda-gpios = <&gpiob 7 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+
+    dmas = <&dma1 5 1 STM32_DMA_PERIPH_TO_MEMORY STM32_DMA_PRIORITY_HIGH>,
+           <&dma1 6 1 STM32_DMA_MEMORY_TO_PERIPH STM32_DMA_PRIORITY_HIGH>;
+    dma-names = "rx", "tx";
 };
 
 

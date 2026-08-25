@@ -4,7 +4,6 @@
 #include "zephyr/irq.h"
 #include "zephyr/kernel.h"
 
-
 void exti0_irqhandler(const void *arg);
 void exti9_5irqhandler(const void *arg);
 void exti15_10irqhandler(const void *arg);
@@ -12,22 +11,16 @@ void tim5_irqhandler(const void *arg);
 void dma1_stream2_irqhandler(const void *arg);
 void tim3_irqhandler(const void *arg);
 void dma1_stream5_irqhandler(const void *arg);
+void dma1_stream4_irqhandler(const void *arg);
+void dma1_stream6_irqhandler(const void *arg);
 
 void BUS_Init(void){
 	RCC->AHB1ENR |= (1 << 1)|(1 << 0)|(1 << 2); // GPIOB, A,C
-	RCC->APB1ENR |= (1 << 0)|(1 << 2); // TIMER 2-4 ENABLE - 84MHz
-	RCC->APB2ENR |= (1 << 14); // SYS ENABLE
-	RCC->APB2ENR |= (1 << 5); // UART 6
-	RCC->AHB1ENR |= (1 << 21); // DMA1 enable
-
-	// RCC->APB1ENR |= RCC_APB1ENR_PWREN; // Bật Power Interface Clock
-	// (void)RCC->APB1ENR;
-	// PWR->CR |= PWR_CR_DBP;            // Mở khóa cho phép ghi thanh ghi Backup Domain (BDCR)
-
-	// // Tắt LSE Bypass và LSE ON để trả PC14 về thuần GPIO
-	// RCC->BDCR &= ~(RCC_BDCR_LSEON | RCC_BDCR_LSEBYP);
-	// PWR->CR &= ~PWR_CR_DBP;           // Khóa lại
-	for(volatile int i = 0; i < 100; i++); // wait for stable
+	(void)RCC->AHB1ENR;
+	RCC->APB1ENR |= (1 << 0)|(1 << 2)|(1 << 14); // TIMER 2-4 ENABLE - 84MHz - SPI2
+	(void)RCC->APB1ENR;
+	RCC->APB2ENR |= (1 << 14)|(1 << 5); // SYS ENABLE || UART 6
+	(void)RCC->APB2ENR;
 }
 
 void Init_The_Config_Of_Drone(void){
@@ -158,65 +151,20 @@ void Init_The_Config_Of_Drone(void){
 
 	IRQ_CONNECT(50,7,tim5_irqhandler,NULL,0);
 	irq_enable(50);
+
+	IRQ_CONNECT(DMA1_Stream2_IRQn, 2, dma1_stream2_irqhandler, NULL, 0);
+    irq_enable(DMA1_Stream2_IRQn);
+
+    IRQ_CONNECT(DMA1_Stream4_IRQn, 2, dma1_stream4_irqhandler, NULL, 0);
+    irq_enable(DMA1_Stream4_IRQn);
+
+    IRQ_CONNECT(DMA1_Stream5_IRQn, 2, dma1_stream5_irqhandler, NULL, 0);
+    irq_enable(DMA1_Stream5_IRQn);
+
+    IRQ_CONNECT(DMA1_Stream6_IRQn, 2, dma1_stream6_irqhandler, NULL, 0);
+    irq_enable(DMA1_Stream6_IRQn);
+
 };
-
-void DMA_I2C3_Stream(void){
-	// channel 3 stream 2 I2C3_RX
-	RCC->AHB1ENR |= (1 << 21); // DMA1 enable
-	for(volatile int i = 0; i < 1000;i++);
-
-	DMA1_Stream2->CR &= ~(1 << 0); // off to config
-	while((DMA1_Stream2->CR & (1 << 0)));
-	DMA1->LIFCR = (0x3D << 16); // clear
-
-	DMA1_Stream2->PAR = (uint32_t)&(I2C3->DR);
-
-	uint32_t config = 0;
-	config |= (3 << 25); // channel 3
-	config |= (3 << 16); // High priority
-	config &= ~(3 << 13); // 8 bit memory
-	config &= ~(3 << 12); // 8bit for peripheral
-	config |= (1 << 10); // memory increment mode
-	config &= ~(1 << 9);
-	config &= ~(1 << 8); // normal
-	config &= ~(3 << 6); // peripheral to mem
-	config |= (1 << 4); // interrupt
-
-	DMA1_Stream2->CR = config;
-	DMA1_Stream2->FCR = 0;
-
-	IRQ_CONNECT(13,6,dma1_stream2_irqhandler,NULL,0);
-	irq_enable(13);
-}
-
-void DMA_I2C1_Stream(void){
-	// channel 3 stream 2 I2C3_RX
-	RCC->AHB1ENR |= (1 << 21); // DMA1 enable
-	for(volatile int i = 0; i < 1000;i++);
-
-	DMA1_Stream5->CR &= ~(1 << 0); // off to config
-	while((DMA1_Stream5->CR & (1 << 0)));
-	DMA1->LIFCR = (0x3D << 16); // clear
-
-	DMA1_Stream5->PAR = (uint32_t)&(I2C1->DR);
-
-	uint32_t config = 0;
-	config |= (3 << 25); // channel 3
-	config |= (3 << 16); // High priority
-	config &= ~(3 << 13); // 8 bit memory
-	config &= ~(3 << 12); // 8bit for peripheral
-	config |= (1 << 10); // memory increment mode
-	config &= ~(1 << 9);
-	config &= ~(1 << 8); // normal
-	config &= ~(3 << 6); // peripheral to mem
-	config |= (1 << 4); // interrupt
-
-	DMA1_Stream5->CR = config;
-	DMA1_Stream5->FCR = 0;
-
-	IRQ_CONNECT(16,6,dma1_stream5_irqhandler,NULL,0);
-	irq_enable(16);
-}
 
 void exti0_irqhandler(const void *arg){
 	ARG_UNUSED(arg);
@@ -244,7 +192,7 @@ void exti15_10irqhandler(const void *arg){
 	if(EXTI->PR & (1 << 11)){ // PC11
 		EXTI->PR = (1 << 11);
 		exti_11_count++;
-		// k_sem_give(&ina226_signal);
+		k_sem_give(&ina226_signal);
 	}
 
 	if(EXTI->PR & (1 << 13)){ // acc
@@ -276,24 +224,38 @@ void tim3_irqhandler(const void *arg){
 	}
 }
 
+
+volatile uint16_t dma1_stream2_count = 0;
 void dma1_stream2_irqhandler(const void *arg){
 	ARG_UNUSED(arg);
-	    // Kiểm tra cờ TCIF2 (Bit 21)
 	if(DMA1->LISR & (1 << 21)){
 	    DMA1->LIFCR = (0x3D << 16); // clear flag
-	    I2C3->CR2 &= ~(1 << 11);
+		dma1_stream2_count++;
 		k_sem_give(&dma1_stream2_signal);
 	}
 }
 
-volatile int dma1_stream5_test = 0;
+void dma1_stream4_irqhandler(const void *arg){
+	ARG_UNUSED(arg);
+	if(DMA1->HISR & (1 << 5)){
+	    DMA1->HIFCR = (0x3D << 0); // clear flag
+		k_sem_give(&dma1_stream4_signal);
+	}
+}
+
 void dma1_stream5_irqhandler(const void *arg){
 	ARG_UNUSED(arg);
 	if(DMA1->HISR & (1 << 11)){
         DMA1->HIFCR = (0x3D << 6); // clear flag
-		dma1_stream5_test++;
-        I2C1->CR2 &= ~(1 << 11);
 		k_sem_give(&dma1_stream5_signal);
+	}
+}
+
+void dma1_stream6_irqhandler(const void *arg){
+	ARG_UNUSED(arg);
+	if(DMA1->HISR & (1 << 21)){
+        DMA1->HIFCR = (0x3D << 16); // clear flag
+		k_sem_give(&dma1_stream6_signal);
 	}
 }
 

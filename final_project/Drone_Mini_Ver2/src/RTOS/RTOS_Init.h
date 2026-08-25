@@ -41,6 +41,8 @@
 #define Motor_Flag (1 << 11)
 #define Radio_Flag (1 << 12)
 
+extern volatile int i2c3_error_count, pmw3901_error_init, ina_error_init, bmp_error_init,hmc_error_init; 
+
 extern struct k_mutex i2c1_mutex;
 extern struct k_mutex i2c3_mutex;
 
@@ -52,8 +54,10 @@ extern struct k_sem bmp280_signal;
 extern struct k_sem ina226_signal;
 
 extern struct k_sem dma1_stream2_signal;
-extern struct k_sem dma1_stream5_signal;
 extern struct k_sem dma1_stream3_signal;
+extern struct k_sem dma1_stream4_signal;
+extern struct k_sem dma1_stream5_signal;
+extern struct k_sem dma1_stream6_signal;
 
 extern struct k_work i2c3_error_work;
 extern struct k_work i2c1_error_work;

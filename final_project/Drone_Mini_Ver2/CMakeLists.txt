@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20.0)
 
+list(APPEND DTS_ROOTS "${CMAKE_CURRENT_SOURCE_DIR}")
+
 # Tự động tìm kiếm cấu hình môi trường gốc của Zephyr OS
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
@@ -19,9 +21,7 @@ zephyr_include_directories(
     src/PMW3901
     src/BMP280
     src/PWM_Control
-    src/I2C_Addr_Scanner
-    src/I2C3_Process_Data
-    src/I2C1_Process_Data
+    src/I2C_Progress
     src/Ranging_Sensor
     src/Ranging_Sensor/core/inc
     src/USB_Debugging
@@ -41,9 +41,7 @@ file(GLOB_RECURSE ALL_SOURCES
     HMC5883/*.c
     AT24LC/*.c
     PMW_Control/*.c
-    I2C_Addr_Scanner/*.c
-    I2C3_Process_Data/*.c
-    I2C1_Process_Data/*.c
+    I2C_Progress/*.c
     Ranging_Sensor/*.c
     Ranging_Sensor/core/src/*.c
     USB_Debugging/*.c

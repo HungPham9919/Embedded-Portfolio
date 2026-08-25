@@ -34,6 +34,12 @@
                 "interface/stlink.cfg",
                 "target/stm32f4x.cfg"
             ],
+            "overrideLaunchCommands": [
+                "monitor reset halt",
+                "load",
+                "monitor reset halt",
+                "thbreak main"
+            ],
             "liveWatch": {
                 "enabled": true,
                 "samplesPerSecond": 20
@@ -41,6 +47,7 @@
             "runToEntryPoint": "main",
             "showDevDebugOutput": "none"
         },
+        
         {
             "name": "nRF51822",
             "type": "cortex-debug",

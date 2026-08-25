@@ -1,6 +1,6 @@
 #include "usb_debug.h"
 #include <zephyr/shell/shell.h>
-#include "I2C_Addr_Scanner/Check_Address_I2C1.h"
+#include "I2C_Progress/I2C.h"
 #include "pmw3901.h"
 #include "zephyr/usb/usb_device.h"
 #include <zephyr/drivers/uart.h>
@@ -9,13 +9,7 @@
 #include "RTOS/RTOS_Init.h"
 
 void init_usb_shell(void){
-    // const struct device *dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
     if(usb_enable(NULL) != 0) return;
-    // uint32_t dtr = 0;
-    // while(!dtr){
-    //     uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
-    //     k_msleep(100);
-    // }
 }
 
 static int cmd_sensor_status(const struct shell *sh, size_t argc, char **argv){
@@ -29,7 +23,11 @@ static int cmd_sensor_status(const struct shell *sh, size_t argc, char **argv){
     shell_print(sh, "VL53L1X: 0x%02X", drone_sensor_addr.sensor6); // 0x29
     shell_print(sh, "GYRO/IMU:0x%02X", drone_sensor_addr.sensor7); // 0x69
     shell_print(sh, "PMW3901:0x%02X || 0x%02X", product_id, inverse_product);
-
+    shell_print(sh, "PMW3901 Error: %d", pmw3901_error_init);
+    shell_print(sh, "INA Error: %d", ina_error_init);
+    shell_print(sh, "BMP280 Error: %d", bmp_error_init);
+    shell_print(sh, "i2c3 Error: %d", i2c3_error_count);
+    shell_print(sh, "hmc5883 Error: %d", hmc_error_init);
     return 0;
 }
 

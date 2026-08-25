@@ -1,15 +1,14 @@
 #include "RTOS_Init.h"
 #include "BMP280.h"
 #include "HMC5883/HMC5883.h"
-#include "I2C1_Processing_Data.h"
+#include "I2C_Progress/I2C.h"
 #include "INA226/INA226.h"
 #include "Initialize/Init_reg.h"
 #include "BMI088_Library/bmi088.h"
 #include "PMW3901/pmw3901.h"
-#include "I2C_Addr_Scanner/Check_Address_I2C1.h"
-#include "I2C3_Process_Data/I2C3_Processing.h"
 #include "stm32f405xx.h"
 #include "zephyr/kernel.h"
+#include "zephyr/sys/printk.h"
 #include <stdbool.h>
 #include <sys/_stdint.h>
 
@@ -19,38 +18,47 @@ K_EVENT_DEFINE(Initial_State_events);
 
 struct k_work i2c1_error_work;
 void i2c1_error_work_handler(struct k_work *work){
-    I2C1_ClearBus();
-    I2C1_RST_APB();
-    I2C1_Initialized();
+    drone_i2c_clearbus(dev_i2c1);
     i2c1_error_count++;
 }
 
 struct k_work i2c3_error_work;
 void i2c3_error_work_handler(struct k_work *work){
-    I2C3_ClearBus();
-    I2C3_RST_APB();
-    I2C3_Initialized();
+    drone_i2c_clearbus(dev_i2c3);
     i2c3_error_count++;
 }
 
 void Start_Default_Task(void *p1, void *p2, void *p3){
+    uint8_t sensors_addr[7] = {0};
     while(1){
-        if(Check_Address_I2C1() == 1) break;
+        if(drone_i2c_check_address(dev_i2c1, sensors_addr, 3) == 0) break;
         else {
-            k_work_submit(&i2c1_error_work); // submit
+            k_work_submit(&i2c1_error_work);
             if(i2c1_error_count > 50) break;
         }
         k_msleep(10);
     }
 
+    drone_sensor_addr.sensor1 = sensors_addr[0];
+    drone_sensor_addr.sensor2 = sensors_addr[1];
+    drone_sensor_addr.sensor3 = sensors_addr[2];
+
     while(1){
-        if(Check_Address_I2C3() == 1) break;
+
+        if(drone_i2c_check_address(dev_i2c3, &sensors_addr[3], 3) == 0) break;
         else {
-            k_work_submit(&i2c3_error_work); // submit
+            k_work_submit(&i2c3_error_work);
             if(i2c3_error_count > 50) break;
         }
         k_msleep(10);
     }
+
+    drone_sensor_addr.sensor4 = sensors_addr[3];
+    drone_sensor_addr.sensor5 = sensors_addr[4];
+    drone_sensor_addr.sensor6 = sensors_addr[5];
+    drone_sensor_addr.sensor7 = sensors_addr[6];
+
+    printk("Found all Sensor \n");
 
     // Initialization of sensor 
 
@@ -60,64 +68,75 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
             // REST MCU - call radio
             break;
         }
-        if(BMI088_Initialize() == 1 && BMI088_Calib() == 1) break;
+        if(BMI088_Initialize() == 0 && BMI088_Calib() == 0) break;
         k_work_submit(&bmi088_work);
         k_msleep(10);
     }
+    printk("BMI088 OK \n");
     k_event_post(&Initial_State_events,BMI088_Ready); // BMI088
+
     // HMC5883
     while (1) {
         if(hmc_error_init > 10){
             break;
         }
-        if(HMC5883_Initialized() == 1 && HMC5883_Calibration() == 1) break;
+        if(HMC5883_Initialized() == 0 && HMC5883_Calibration() == 0) break;
 
         k_work_submit(&hmc5883_work);
-        k_msleep(5);
+        k_msleep(10);
     }
     k_event_post(&Initial_State_events, HMC5883_Ready);
-    
+    if(hmc_error_init < 10) printk("HMC5883 OK \n");
+    else printk("HMC5883 Failed \n");
     // Vl53L1X
-
-    
-    // PMW3901
-    // while (1) {
-    //     if(pmw3901_error_init > 10){
-    //         // call status
-    //         break;
-    //     }
-    //     optical_flow_sensor();
-    //     if(product_id != 0x49 || revision_id != 0x00 || inverse_product != 0xB6){
-    //         k_work_submit(&pmw3901_work);
-    //     }
-    //     k_msleep(5);
-    // }
-
-    // pmw3901_init_registers();
-    // k_event_post(&Initial_State_events, PMW3901_Ready);
 
     // INA226
     while(1){
         if(ina_error_init > 10) {
             break;
         }
-        if(INA226_Initialized() == 1) break;
+        if(INA226_Initialized() == 0) break;
         k_work_submit(&ina226_work);
         k_msleep(5);
     }
     k_event_post(&Initial_State_events, INA226_Ready);
+
+    if(ina_error_init < 10) printk("INA226 OK \n");
+    else printk("INA226 Failed \n");
 
     // BMP280
     while (1) {
         if(bmp_error_init > 10){
             break;
         }
-        if(BMP280_Initialized() == 1 && BMP280_Calibration() == 1) break;
+        if(BMP280_Initialized() == 0 && BMP280_Calibration() == 0) break;
         k_work_submit(&bmp280_work);
         k_msleep(5);
     }
 
     k_event_post(&Initial_State_events, BMP280_Ready);
+
+
+    if(bmp_error_init < 10) printk("BMP280 OK \n");
+    else printk("BMP280 Failed \n");
+
+        // PMW3901
+    while (1) {
+        if(pmw3901_error_init > 10){
+            // call status
+            break;
+        }
+        optical_flow_sensor();
+        if(product_id == 0x49 && inverse_product == 0xB6) break;
+        k_work_submit(&pmw3901_work);
+        k_msleep(5);
+    }
+    pmw3901_init_registers();
+    if(pmw3901_error_init < 10) printk("PMW3901 OK \n");
+    else printk("PMW3901 Failed \n");
+    // k_event_post(&Initial_State_events, PMW3901_Ready);
+
+
     EXTI->IMR |= (1 << 10)|(1 << 13)|(1 << 14); // Enable interrupt
     GPIOC->BSRR = (1 << 1); // on led
     // AT24LC
@@ -126,9 +145,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
 
 struct k_work bmi088_work;
 void bmi088_work_handler(struct k_work *work){
-    I2C3_ClearBus();
-    I2C3_RST_APB();
-    I2C3_Initialized();
+    drone_i2c_clearbus(dev_i2c3);
     bmi_error_init++;
 }
 
@@ -143,8 +160,8 @@ void BMI088_Task(void *p1, void *p2, void *p3){     // 200Hz
     while(1){
         k_sem_take(&bmi088_signal,K_FOREVER);
         if(k_mutex_lock(&i2c3_mutex,K_MSEC(1)) == 0){
-            I2C3_Read_Data_DMA_Safe(ACC_ADDR,ACC_Data,acc_data,6, &i2c3_error_work);
-            I2C3_Read_Data_DMA_Safe(GYRO_ADDR,GYRO_Data,gyro_data,6,&i2c3_error_work);
+            i2c_dma_read_data(dev_i2c3,ACC_ADDR,ACC_Data,acc_data,6, &dma1_stream2_signal);
+            i2c_dma_read_data(dev_i2c3,GYRO_ADDR,GYRO_Data,gyro_data,6,&dma1_stream2_signal);
         }
         k_mutex_unlock(&i2c3_mutex);
         Calculate_And_Filter_Angle(acc_data,gyro_data,dt);
@@ -155,9 +172,7 @@ void BMI088_Task(void *p1, void *p2, void *p3){     // 200Hz
 
 struct k_work hmc5883_work;
 void hmc5883_work_handler(struct k_work *work){
-    I2C3_ClearBus();
-    I2C3_RST_APB();
-    I2C3_Initialized();
+    drone_i2c_clearbus(dev_i2c3);
     hmc_error_init++;
 }
 
@@ -166,7 +181,7 @@ void HMC5883_Task(void *p1, void *p2, void *p3){
     while (1) {
         k_sem_take(&HMC5883_signal, K_FOREVER);
         if(k_mutex_lock(&i2c3_mutex, K_MSEC(1))){
-            I2C3_Read_Data_DMA_Safe(HMC5883_ADDR, HMC5883_DATA, hmc_data, sizeof(hmc_data), &i2c3_error_work);
+            i2c_dma_read_data(dev_i2c3,HMC5883_ADDR, HMC5883_DATA, hmc_data, sizeof(hmc_data), &dma1_stream2_signal);
         }
         k_mutex_unlock(&i2c3_mutex);
         Cal_The_Direction_Of_Yaw(hmc_data);
@@ -196,9 +211,7 @@ void PMW3901_Task(void *p1, void *p2, void *p3){ // SPI
 struct k_work bmp280_work;
 
 void bmp280_work_handler(struct k_work *work){
-    I2C1_ClearBus();
-    I2C1_RST_APB();
-    I2C1_Initialized();
+    drone_i2c_clearbus(dev_i2c1);
     bmp_error_init++;
 }
 
@@ -213,9 +226,7 @@ void BMP280_Task(void *p1, void *p2, void *p3){
 
 struct k_work ina226_work;
 void ina226_work_handler(struct k_work *work){
-    I2C1_ClearBus();
-    I2C1_RST_APB();
-    I2C1_Initialized();
+    drone_i2c_clearbus(dev_i2c1);
     ina_error_init++;
 }
 
@@ -225,9 +236,9 @@ void INA226_Task(void *p1, void *p2, void *p3){
     uint8_t limit_check[2] = {0};
     uint8_t bus_volatage[2] = {0};
     while(1){
-        // k_sem_take(&ina226_signal, K_FOREVER);
-        I2C1_Read_Multiple_Byte_Safe(INA226_ADDR, INA226_Alert_limit, limit_check, 2, &i2c1_error_work);
-        I2C1_Read_Multiple_Byte_Safe(INA226_ADDR, INA226_Bus_Voltage, bus_volatage, sizeof(bus_volatage), &i2c1_error_work);
+        k_sem_take(&ina226_signal, K_FOREVER);
+        i2c_dma_read_data(dev_i2c1,INA226_ADDR, INA226_Alert_limit, limit_check, 2, &dma1_stream5_signal);
+        i2c_dma_read_data(dev_i2c1,INA226_ADDR, INA226_Bus_Voltage, bus_volatage, sizeof(bus_volatage), &dma1_stream5_signal);
         int16_t raw_volatge = (int16_t)(bus_volatage[0] << 8 | bus_volatage[1]);
         check_limit = (limit_check[0] << 8 | limit_check[1]);
         Current_voltage = raw_volatge*0.00125f;
@@ -265,10 +276,12 @@ K_SEM_DEFINE(radio_signal,0,1);
 K_SEM_DEFINE(bmp280_signal,0,1);
 K_SEM_DEFINE(ina226_signal,0,1);
 
-K_SEM_DEFINE(dma1_stream5_signal,0,1);
+
 K_SEM_DEFINE(dma1_stream2_signal,0,1);
 K_SEM_DEFINE(dma1_stream3_signal,0,1);
-
+K_SEM_DEFINE(dma1_stream4_signal,0,1);
+K_SEM_DEFINE(dma1_stream5_signal,0,1);
+K_SEM_DEFINE(dma1_stream6_signal,0,1);
 // k_work
 K_WORK_DEFINE(i2c1_error_work, i2c1_error_work_handler);
 K_WORK_DEFINE(i2c3_error_work, i2c3_error_work_handler);
