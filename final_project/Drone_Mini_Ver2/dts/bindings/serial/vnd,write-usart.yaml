@@ -1,0 +1,29 @@
+description: Custom Bare-Metal USART Driver with Manual DMA for Drone
+
+compatible: "vnd,write-usart"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  reg:
+    required: true
+    
+  resets:
+    type: phandle-array
+    required: false
+
+  interrupts:
+    type: array
+    required: false
+
+  current-speed:
+    type: int
+    required: false
+
+  dmas:
+    type: phandle-array
+    required: false
+
+  dma-names:
+    type: string-array
+    required: false

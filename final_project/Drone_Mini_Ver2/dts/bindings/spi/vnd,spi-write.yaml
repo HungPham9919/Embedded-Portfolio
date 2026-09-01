@@ -1,0 +1,10 @@
+description: Custom SPI Bare-metal Driver Binding
+
+compatible: "vnd,write-spi"
+
+include: spi-controller.yaml
+
+properties:
+  clock-frequency:
+    type: int
+    description: Clock frequency in Hz

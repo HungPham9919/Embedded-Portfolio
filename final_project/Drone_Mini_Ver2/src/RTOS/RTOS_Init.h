@@ -5,6 +5,7 @@
 #include "zephyr/kernel.h"
 
 #define Default_Thread_Stack_Size 1024
+#define Comms_Thread_Stack_Size 1024
 
 #define BMI088_Thread_Stack_Size 1024
 #define HMC5883_Thread_Stack_Size 512
@@ -15,10 +16,11 @@
 #define INA226_Thread_Stack_Size 512
 
 #define BMI088_Priority 3
-#define PMW3901_Priority 3
+#define PMW3901_Priority 4
 #define HMC5883_Priority 4
-#define INA226_Priority 3
-#define BMP280_Priority 5 
+#define Comms_Priority 5
+#define INA226_Priority 7
+#define BMP280_Priority 6 
 #define Default_Priority 6
 
 #define BMI088_Ready (1 << 0)

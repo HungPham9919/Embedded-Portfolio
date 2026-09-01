@@ -19,7 +19,7 @@ void BUS_Init(void){
 	(void)RCC->AHB1ENR;
 	RCC->APB1ENR |= (1 << 0)|(1 << 2)|(1 << 14); // TIMER 2-4 ENABLE - 84MHz - SPI2
 	(void)RCC->APB1ENR;
-	RCC->APB2ENR |= (1 << 14)|(1 << 5); // SYS ENABLE || UART 6
+	RCC->APB2ENR |= (1 << 14); // SYS ENABLE
 	(void)RCC->APB2ENR;
 }
 
@@ -82,6 +82,13 @@ void Init_The_Config_Of_Drone(void){
 	TIM4->EGR |= (1 << 0);
 	TIM4->CR1 |= (1 << 0);
 
+	// PA9 - GPIO -VL53L1X - Active low
+    GPIOA->MODER &= ~(3 << 18);
+	SYSCFG->EXTICR[2] &= ~(0x0F << 4);
+    EXTI->FTSR |= (1 << 9); // Falling trigger
+	EXTI->PR |= (1 << 9);
+    EXTI->IMR |= (1 << 9); // enable
+
 	// PC0 HMC5883 - DRDY - Active low - EXTI-0
 	GPIOC->MODER &= ~(3 << 0);
 	SYSCFG->EXTICR[0] &= ~(0x0F << 0);
@@ -91,11 +98,12 @@ void Init_The_Config_Of_Drone(void){
 	EXTI->IMR |= (1 << 0);
 	irq_connect_dynamic(6, 6, exti0_irqhandler, NULL, 0);
 	irq_enable(6);
+
 	// PC8 - EXTI8 for PMW3901
     // 4. Cấu hình PC8 (EXTI / MOT) -> Input Pull-up - Pheriperal has been enabled
     GPIOC->MODER &= ~(3 << 16);
 	SYSCFG->EXTICR[2] &= ~(0x0F << 0);
-	SYSCFG->EXTICR[2] |= (2 << 8);
+	SYSCFG->EXTICR[2] |= (2 << 0);
     EXTI->FTSR |= (1 << 8); // Falling trigger
 	EXTI->PR |= (1 << 8);
     EXTI->IMR |= (1 << 8); // enable
@@ -164,17 +172,19 @@ void Init_The_Config_Of_Drone(void){
     IRQ_CONNECT(DMA1_Stream6_IRQn, 2, dma1_stream6_irqhandler, NULL, 0);
     irq_enable(DMA1_Stream6_IRQn);
 
-};
 
+};
+volatile int exti0_count = 0;
 void exti0_irqhandler(const void *arg){
 	ARG_UNUSED(arg);
 	if(EXTI->PR & (1 << 0)){
 		EXTI->PR = (1 << 0);
-		// send signal
+		exti0_count++;
+		k_sem_give(&HMC5883_signal);
 	}
 }
 
-volatile int exti8_count = 0;
+volatile int exti8_count = 0, exti9_count = 0;
 void exti9_5irqhandler(const void *arg){
 	ARG_UNUSED(arg);
 
@@ -182,6 +192,12 @@ void exti9_5irqhandler(const void *arg){
 		EXTI->PR = (1 << 8); // clear pending
 		exti8_count++;
 		k_sem_give(&pmw3901_signal);
+	}
+
+	if(EXTI->PR & (1 << 9)){
+		EXTI->PR = (1 << 9);
+		exti9_count++;
+		// Vl53
 	}
 }
 
@@ -226,7 +242,7 @@ void tim3_irqhandler(const void *arg){
 
 
 volatile uint16_t dma1_stream2_count = 0;
-void dma1_stream2_irqhandler(const void *arg){
+void dma1_stream2_irqhandler(const void *arg){ // i2c3 - rx
 	ARG_UNUSED(arg);
 	if(DMA1->LISR & (1 << 21)){
 	    DMA1->LIFCR = (0x3D << 16); // clear flag
@@ -235,23 +251,24 @@ void dma1_stream2_irqhandler(const void *arg){
 	}
 }
 
-void dma1_stream4_irqhandler(const void *arg){
+void dma1_stream4_irqhandler(const void *arg){ // i2c3 - tx
 	ARG_UNUSED(arg);
 	if(DMA1->HISR & (1 << 5)){
 	    DMA1->HIFCR = (0x3D << 0); // clear flag
 		k_sem_give(&dma1_stream4_signal);
 	}
 }
-
-void dma1_stream5_irqhandler(const void *arg){
+volatile int dma1_stream5_count = 0;
+void dma1_stream5_irqhandler(const void *arg){ // i2c1 - rx
 	ARG_UNUSED(arg);
 	if(DMA1->HISR & (1 << 11)){
         DMA1->HIFCR = (0x3D << 6); // clear flag
+		dma1_stream5_count++;
 		k_sem_give(&dma1_stream5_signal);
 	}
 }
 
-void dma1_stream6_irqhandler(const void *arg){
+void dma1_stream6_irqhandler(const void *arg){ // i2c1 - tx
 	ARG_UNUSED(arg);
 	if(DMA1->HISR & (1 << 21)){
         DMA1->HIFCR = (0x3D << 16); // clear flag

@@ -45,7 +45,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
 
     while(1){
 
-        if(drone_i2c_check_address(dev_i2c3, &sensors_addr[3], 3) == 0) break;
+        if(drone_i2c_check_address(dev_i2c3, &sensors_addr[3], 4) == 0) break;
         else {
             k_work_submit(&i2c3_error_work);
             if(i2c3_error_count > 50) break;
@@ -73,7 +73,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(10);
     }
     printk("BMI088 OK \n");
-    k_event_post(&Initial_State_events,BMI088_Ready); // BMI088
+    k_event_post(&Initial_State_events,BMI088_Ready);
 
     // HMC5883
     while (1) {
@@ -126,15 +126,15 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
             // call status
             break;
         }
-        optical_flow_sensor();
+        optical_identify_id(dev_spi2);
         if(product_id == 0x49 && inverse_product == 0xB6) break;
         k_work_submit(&pmw3901_work);
         k_msleep(5);
     }
-    pmw3901_init_registers();
+    pmw3901_init_registers(dev_spi2);
     if(pmw3901_error_init < 10) printk("PMW3901 OK \n");
     else printk("PMW3901 Failed \n");
-    // k_event_post(&Initial_State_events, PMW3901_Ready);
+    k_event_post(&Initial_State_events, PMW3901_Ready);
 
 
     EXTI->IMR |= (1 << 10)|(1 << 13)|(1 << 14); // Enable interrupt
@@ -159,7 +159,7 @@ void BMI088_Task(void *p1, void *p2, void *p3){     // 200Hz
 
     while(1){
         k_sem_take(&bmi088_signal,K_FOREVER);
-        if(k_mutex_lock(&i2c3_mutex,K_MSEC(1)) == 0){
+        if(k_mutex_lock(&i2c3_mutex,K_MSEC(2)) == 0){
             i2c_dma_read_data(dev_i2c3,ACC_ADDR,ACC_Data,acc_data,6, &dma1_stream2_signal);
             i2c_dma_read_data(dev_i2c3,GYRO_ADDR,GYRO_Data,gyro_data,6,&dma1_stream2_signal);
         }
@@ -180,7 +180,7 @@ void HMC5883_Task(void *p1, void *p2, void *p3){
     uint8_t hmc_data[6] = {0};
     while (1) {
         k_sem_take(&HMC5883_signal, K_FOREVER);
-        if(k_mutex_lock(&i2c3_mutex, K_MSEC(1))){
+        if(k_mutex_lock(&i2c3_mutex, K_NO_WAIT)){
             i2c_dma_read_data(dev_i2c3,HMC5883_ADDR, HMC5883_DATA, hmc_data, sizeof(hmc_data), &dma1_stream2_signal);
         }
         k_mutex_unlock(&i2c3_mutex);
@@ -196,13 +196,25 @@ void pmw3901_work_handler(struct k_work *work){
     SPI2->CR1 |= (1 << 0);
 }
 
+
 void PMW3901_Task(void *p1, void *p2, void *p3){ // SPI
     uint8_t pmw3901_buffer[12] = {0};
     k_event_wait(&Initial_State_events, PMW3901_Ready, false, K_FOREVER);
 
     while(1){
         k_sem_take(&pmw3901_signal,K_FOREVER);
-        SPI2_DMA_Transfer(pmw3901_buffer, sizeof(pmw3901_buffer));
+        if(pmw3901_read_burst_dma(dev_spi2, pmw3901_buffer) != 0){
+            k_work_submit(&pmw3901_work);
+        }
+    }
+
+    squal = pmw3901_buffer[6];
+    delta_x = (int16_t)((pmw3901_buffer[3] << 8)|pmw3901_buffer[2]);
+    delta_y = (int16_t)((pmw3901_buffer[5] << 8)|pmw3901_buffer[4]);
+
+    if(delta_x != 0 && delta_y != 0){
+        pos_x += delta_x;
+        pos_y += delta_y;
     }
 
     // cal PID
@@ -255,6 +267,12 @@ void Radio_Communication(void *p1,void *p2, void *p3){
     }
 }
 
+void Comms_Task(void *p1, void *p2, void *p3){
+    while (1) {
+        k_msleep(50); // 20 Hz
+    }
+}
+
 
 K_THREAD_DEFINE(start_default_id,Default_Thread_Stack_Size,Start_Default_Task,NULL,NULL,NULL,Default_Priority,0,0);
 K_THREAD_DEFINE(bmi088_id,BMI088_Thread_Stack_Size,BMI088_Task,NULL,NULL,NULL,BMI088_Priority,0,0);
@@ -262,6 +280,7 @@ K_THREAD_DEFINE(pmw3901_id,PMW3901_Thread_Stack_Size,PMW3901_Task,NULL,NULL,NULL
 K_THREAD_DEFINE(bmp280_id,BMP280_Thread_Stack_Size,BMP280_Task,NULL,NULL,NULL,BMP280_Priority,0,0);
 K_THREAD_DEFINE(hmc5883_id, HMC5883_Thread_Stack_Size, HMC5883_Task, NULL, NULL, NULL, HMC5883_Priority, 0, 0);
 K_THREAD_DEFINE(ina226_id, INA226_Thread_Stack_Size, INA226_Task, NULL, NULL, NULL, INA226_Priority, 0,0);
+K_THREAD_DEFINE(comms_id, Comms_Thread_Stack_Size, Comms_Task, NULL,NULL,NULL,Comms_Priority,0,0);
 // Mutex
 
 K_MUTEX_DEFINE(i2c3_mutex);
