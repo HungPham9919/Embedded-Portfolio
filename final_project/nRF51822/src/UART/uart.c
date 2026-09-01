@@ -1,5 +1,6 @@
 #include "uart.h"
 #include "nrf51.h"
+#include "zephyr/irq.h"
 
 void USART_Initialize(uint8_t TX_pin, uint8_t RX_pin){
 
@@ -24,9 +25,6 @@ void USART_Initialize(uint8_t TX_pin, uint8_t RX_pin){
     NRF_UART0->TASKS_STARTTX = 1;
     NRF_UART0->TASKS_STARTRX = 1;
 
-    NVIC_SetPriority(UART0_IRQn,2);
-    NVIC_ClearPendingIRQ(UART0_IRQn);
-    NVIC_EnableIRQ(UART0_IRQn);
 }
 
 static uint8_t STM32_Data[32] __attribute__((aligned(4))) __attribute__((used)) = {0};
@@ -34,7 +32,8 @@ static int nRF51822_index __attribute__((used)) = 0;
 static char last_char __attribute__((used)) = 0;
 static int index = 0;
 
-void UART0_IRQHandler(void){
+void UART0_IRQHandler(const void *arg){
+    ARG_UNUSED(arg);
     if (NRF_UART0->EVENTS_ERROR) {
         NRF_UART0->EVENTS_ERROR = 0;
         NRF_UART0->ERRORSRC = NRF_UART0->ERRORSRC; 
@@ -54,16 +53,11 @@ void UART0_IRQHandler(void){
     }
 }
 
-void SWI0_Configuration(void) {
-    NVIC_SetPriority(SWI0_IRQn, 3);
-    NVIC_ClearPendingIRQ(SWI0_IRQn);
-    NVIC_EnableIRQ(SWI0_IRQn);
-}
-
 extern uint8_t drone_id;
 
-void SWI0_IRQHandler(void)
+void SWI0_IRQHandler(const void *arg)
 {
+    ARG_UNUSED(arg);
     NVIC_DisableIRQ(RADIO_IRQn);
     NRF_RADIO->SHORTS = 0;
 
@@ -97,21 +91,4 @@ void USART_Disable(void){
     NRF_UART0->EVENTS_RXDRDY = 0;
     NRF_UART0->EVENTS_TXDRDY = 0;
     NRF_UART0->ENABLE = 0;
-}
-
-void delay_ms(uint32_t ms){
-    NRF_TIMER0->MODE = TIMER_MODE_MODE_Timer;
-    NRF_TIMER0->PRESCALER = 4; // 1 MHz (1 tick = 1us)
-    NRF_TIMER0->BITMODE = TIMER_BITMODE_BITMODE_32Bit;
-
-    NRF_TIMER0->TASKS_CLEAR = 1;
-    NRF_TIMER0->TASKS_START = 1;
-
-    while (1){
-        NRF_TIMER0->TASKS_CAPTURE[0] = 1;   // copy COUNTER → CC[0]
-        if (NRF_TIMER0->CC[0] >= ms * 1000){
-            break;
-        }
-    }
-    NRF_TIMER0->TASKS_STOP = 1;
 }

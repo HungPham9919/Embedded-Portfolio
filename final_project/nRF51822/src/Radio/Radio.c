@@ -2,9 +2,16 @@
 #include "UART/uart.h"
 #include "nrf.h"
 #include "Radio.h"
+#include "nrf51.h"
 #include "string.h"
 
+#include "zephyr/device.h"
+#include "zephyr/irq.h"
+#include "zephyr/drivers/clock_control.h"
+#include "zephyr/drivers/clock_control/nrf_clock_control.h"
+
 static uint8_t rx2411_buffer[32] __attribute__((aligned(4))) __attribute__((used));
+static uint8_t tx_dma_buffer[36] __attribute__((aligned(4)));
 
 static uint32_t swap_bits(uint32_t inp)
 {
@@ -35,11 +42,19 @@ const RF_Config_t nRF51822_cfg = {
     .CRC_POLY = 0x11021
 };
 
+// void High_Clock_Enable(void){
+//     NRF_CLOCK->XTALFREQ = 0xFF;
+//     NRF_CLOCK->EVENTS_HFCLKSTARTED = 0;
+//     NRF_CLOCK->TASKS_HFCLKSTART = 1;
+//     while (NRF_CLOCK->EVENTS_HFCLKSTARTED == 0);
+// }
+
 void High_Clock_Enable(void){
-    NRF_CLOCK->XTALFREQ = 0xFF;
-    NRF_CLOCK->EVENTS_HFCLKSTARTED = 0;
-    NRF_CLOCK->TASKS_HFCLKSTART = 1;
-    while (NRF_CLOCK->EVENTS_HFCLKSTARTED == 0);
+    // Lấy device clock bằng tương thích tương xứng của NRF
+    const struct device *clock_dev = DEVICE_DT_GET_ONE(nordic_nrf_clock);
+    if (device_is_ready(clock_dev)) {
+        clock_control_on(clock_dev, CLOCK_CONTROL_NRF_SUBSYS_HF);
+    }
 }
 
 void nRF51822_2411N_Configuration(const RF_Config_t *cfg){
@@ -50,7 +65,7 @@ void nRF51822_2411N_Configuration(const RF_Config_t *cfg){
 
     NRF_GPIO->DIRSET = (1 << MODE_2411)|(1 << RXEN_2411)|(1 << SWANT_2411)|(1 << LED_2411N); // output
     NRF_GPIO->OUTSET = (1 << MODE_2411);  // High power
-    NRF_GPIO->OUTCLR = (1 << SWANT_2411); // ANTB -> CA-C03
+    NRF_GPIO->OUTSET = (1 << SWANT_2411); // ANTA -> CA-C03
 
     NRF_RADIO->BASE0 = bytewise_bitswap(0xCCCCCCCC);
     NRF_RADIO->BASE1 = bytewise_bitswap(0xCCCCCCCC);
@@ -164,18 +179,13 @@ void Master_To_Drone(uint8_t drone_id, uint8_t state) { // receiver
     NRF_RADIO->INTENCLR = 0xFFFFFFFF;
     NRF_RADIO->INTENSET = (1UL << 3) | (1UL << 1); 
 
-    NVIC_SetPriority(RADIO_IRQn, 1); 
-    NVIC_ClearPendingIRQ(RADIO_IRQn);
-    NVIC_EnableIRQ(RADIO_IRQn);
-
     Switching_Function(state);
     NRF_RADIO->TASKS_RXEN = 1; // Kích hoạt nhận
 }
 
 extern uint8_t drone_id;
-void RADIO_IRQHandler(void)
-{
-
+void RADIO_IRQHandler(const void *arg){
+    ARG_UNUSED(arg);
     if(NRF_RADIO->EVENTS_PAYLOAD) {
         NRF_RADIO->EVENTS_PAYLOAD = 0;
     }
@@ -202,36 +212,41 @@ void RADIO_IRQHandler(void)
     }
 }
 
-void Drone_To_Master(uint8_t *data, uint8_t data_len ,uint8_t drone_id, uint8_t state){ // transfer
-    static uint8_t tx_dma_buffer[34] __attribute__((aligned(4)));
-    tx_dma_buffer[0] = data_len; // Byte 0: Ép trường LENGTH
-    tx_dma_buffer[1] = 0; // Byte 1: Ép trường S1 = 0
+void Drone_To_Master(uint8_t *data, uint8_t data_len, uint8_t drone_id, uint8_t state) {
+    volatile uint32_t timeout;
 
+    if (data_len > 32) data_len = 32;
+
+    memset(tx_dma_buffer, 0, sizeof(tx_dma_buffer));
+    tx_dma_buffer[0] = data_len;
+    tx_dma_buffer[1] = 0;
     memcpy(&tx_dma_buffer[2], data, data_len);
 
+    NRF_RADIO->EVENTS_READY = 0;
+    NRF_RADIO->EVENTS_END = 0;
+    NRF_RADIO->EVENTS_DISABLED = 0;
 
     NRF_RADIO->PREFIX0 = (NRF_RADIO->PREFIX0 & 0xFFFFFF00) | (swap_bits(drone_id));
     NRF_RADIO->TXADDRESS = 0;
 
     Switching_Function(state);
-    NRF_RADIO->EVENTS_ADDRESS = 0;
-    NRF_RADIO->EVENTS_END = 0;
-    NRF_RADIO->EVENTS_READY = 0; 
 
     NRF_RADIO->PACKETPTR = (uint32_t)tx_dma_buffer;
-    
+
     NRF_RADIO->TASKS_TXEN = 1;
-    while (NRF_RADIO->EVENTS_READY == 0); 
+    timeout = 100000;
+    while (NRF_RADIO->EVENTS_READY == 0 && --timeout);
+    if (timeout == 0) return; // Bảo vệ không cho treo CPU
     NRF_RADIO->EVENTS_READY = 0;
 
-    NRF_RADIO->TASKS_START = 1;      
-    while (NRF_RADIO->EVENTS_END == 0);
-    NRF_RADIO->EVENTS_END = 0; 
+    NRF_RADIO->TASKS_START = 1;
+    timeout = 100000;
+    while (NRF_RADIO->EVENTS_END == 0 && --timeout);
+    if (timeout == 0) return;
+    NRF_RADIO->EVENTS_END = 0;
 
-    NRF_RADIO->EVENTS_DISABLED = 0;
     NRF_RADIO->TASKS_DISABLE = 1;
-
-    while(!NRF_RADIO->EVENTS_DISABLED);
-
+    timeout = 100000;
+    while (NRF_RADIO->EVENTS_DISABLED == 0 && --timeout);
     NRF_RADIO->EVENTS_DISABLED = 0;
 }
