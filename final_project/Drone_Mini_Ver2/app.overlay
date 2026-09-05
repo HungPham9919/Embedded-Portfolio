@@ -30,10 +30,15 @@
     aliases {
         drone-i2c3 = &i2c3;
         drone-i2c1 = &i2c1;
+        drone-usart6 = &usart6;
     };
 };
 
 &dma1 {
+    status = "okay";
+};
+
+&dma2 {
     status = "okay";
 };
 
@@ -67,6 +72,31 @@
     dma-names = "rx", "tx";
 };
 
+&usart6 {
+    status = "okay";
+    compatible = "vnd,write-usart";
+    /delete-property/ interrupts;
+    pinctrl-0 = <&usart6_tx_pc6 &usart6_rx_pc7>;
+    pinctrl-names = "default";
+    current-speed = <115200>;
+
+    dmas = <&dma2 1 5 STM32_DMA_PERIPH_TO_MEMORY STM32_DMA_PRIORITY_HIGH>,
+           <&dma2 6 5 STM32_DMA_MEMORY_TO_PERIPH STM32_DMA_PRIORITY_HIGH>;
+    dma-names = "rx", "tx";
+};
+
+&spi2 {
+    status = "okay";
+    compatible = "vnd,spi-write";
+    pinctrl-0 = <&spi2_sck_pb13 &spi2_miso_pb14 &spi2_mosi_pb15>;
+    pinctrl-names = "default";
+    cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>;
+    clock-frequency = <2000000>; /* Tần số 2MHz */
+
+    dmas = <&dma1 3 0 STM32_DMA_PERIPH_TO_MEMORY STM32_DMA_PRIORITY_HIGH>,
+           <&dma1 4 0 STM32_DMA_MEMORY_TO_PERIPH STM32_DMA_PRIORITY_HIGH>;
+    dma-names = "rx", "tx";
+};
 
 / {
     chosen {
@@ -79,7 +109,11 @@
 &usbotg_fs {
     status = "okay";
 
-    /* 2. Khai bao Virtual COM Port (CDC ACM) lam con cua usbotg_fs */
+    pinctrl-0 = <&usb_otg_fs_dm_pa11 &usb_otg_fs_dp_pa12>;
+    pinctrl-names = "default";
+    
+    /delete-property/ vbus-gpios;
+
     cdc_acm_uart0: cdc_acm_uart0 {
         compatible = "zephyr,cdc-acm-uart";
     };

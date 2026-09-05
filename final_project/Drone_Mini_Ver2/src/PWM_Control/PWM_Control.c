@@ -147,7 +147,7 @@ void Control_PWM(float roll_sp, float pitch_sp, float yaw_sp){
 	u_pitch = Update_PID(&pitch_pid_rate, final.gy, rate_dt);
 	u_yaw = Update_PID(&yaw_pid_rate, final.gz, rate_dt);
 
-	if(fabs(drone_angle.Roll_angle) > 15 || fabs(drone_angle.Pitch_angle) > 15 || fabs(drone_angle.Yaw_angle) > 20){
+	if(fabsf(drone_angle.Roll_angle) > 15 || fabsf(drone_angle.Pitch_angle) > 15 || fabsf(drone_angle.Yaw_angle) > 20){
 		GPIOC->BSRR = (1 << 0);
 	}
 

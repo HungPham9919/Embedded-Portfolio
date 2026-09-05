@@ -21,7 +21,9 @@ int HMC5883_Calibration(void);
 void Cal_The_Direction_Of_Yaw(uint8_t *data);
 
 typedef struct {
-    float mag_x_os, mag_z_os, mag_y_os;
+    float mag_x_os;
+    float mag_y_os;
+    float mag_z_os;
 } hmc_data_os;
 
 typedef struct {

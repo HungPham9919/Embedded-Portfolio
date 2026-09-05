@@ -35,5 +35,6 @@ void nRF51822_2411N_Configuration(const RF_Config_t *cfg);
 void Drone_To_Master(uint8_t *data, uint8_t data_len ,uint8_t drone_id, uint8_t state);
 void Master_To_Drone(uint8_t drone_id,uint8_t state);
 uint8_t Auto_Get_Drone_ID(void);
+void RADIO_IRQHandler(const void *arg);
 
 #endif

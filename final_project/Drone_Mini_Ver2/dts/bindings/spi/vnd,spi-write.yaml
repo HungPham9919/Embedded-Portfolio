@@ -1,0 +1,24 @@
+description: Custom SPI Bare-metal Driver Binding
+
+compatible: "vnd,spi-write"
+
+include: [spi-controller.yaml, base.yaml]
+
+properties:
+  clock-frequency:
+    type: int
+    required: true
+    description: SPI Clock frequency in Hz
+
+  pinctrl-0:
+    type: phandles
+    required: true
+
+  pinctrl-names:
+    type: string-array    # <-- SỬA TẠI ĐÂY (đổi string-list thành string-array)
+    required: true
+
+  cs-gpios:
+    type: phandle-array
+    required: false
+    description: GPIO pin for Chip Select

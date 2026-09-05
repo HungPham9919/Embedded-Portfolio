@@ -1,19 +1,23 @@
 #include "pmw3901.h"
 #include "RTOS_Init.h"
 #include "stm32f405xx.h"
-#include "zephyr/irq.h"
-#include "zephyr/kernel.h"
+#include "zephyr/device.h"
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/pinctrl.h>
+#include <zephyr/irq.h>
+#include <zephyr/kernel.h>
 #include <stdlib.h>
 #include <sys/_stdint.h>
+#include <sys/errno.h>
 
 volatile int16_t delta_x = 0;
 volatile int16_t delta_y = 0;
-volatile int32_t pos_x = 0; // Tích lũy tọa độ X
-volatile int32_t pos_y = 0; // Tích lũy tọa độ Y
+volatile int32_t pos_x = 0;
+volatile int32_t pos_y = 0;
 volatile uint8_t squal = 0;
-volatile uint8_t motion_flag = 0;
-volatile uint8_t raw_sum = 0, raw_max = 0, raw_min = 0;
-uint8_t burst_data[12];
+
+Drone_Pos drone_pos;
+const struct device *dev_spi2 = DEVICE_DT_GET(DT_NODELABEL(spi2));
 
 static const uint8_t pmw3901_init_registers_table[][2] = {
     {0x7F, 0x00}, {0x61, 0xAD}, {0x7F, 0x03}, {0x40, 0x00},
@@ -40,211 +44,284 @@ static const uint8_t pmw3901_bitcraze_added[][2] = {
     {0x5A, 0x50},{0x40, 0x80},
 };
 
-void Optical_Flow_Init(void) {
-    // 2. PB13 SCK || PB14 - MISO || PB15-MOSI
-    GPIOB->MODER &= ~(3 << 26) &~(3 << 28) &~(3 << 30);
-    GPIOB->MODER |=  (2 << 26)|(2 << 28)|(2 << 30);
+// static const uint8_t dummy_tx = 0x00;
 
-    GPIOB->OSPEEDR |= (3 << 26)|(3 << 28)|(3 << 30); // High speed
-    // AF5
-    GPIOB->AFR[1] &= ~(0x0F << 20) &~(0x0F << 24) &~(0x0F << 28);
-    GPIOB->AFR[1] |= (5 << 20)|(5 << 24)|(5 << 28);
-
-    // 3. Cấu hình PB12 (CS) -> Output Push-Pull
-    GPIOB->MODER &= ~(3 << 24);
-    GPIOB->MODER |=  (1 << 24);
-    GPIOB->ODR |=  (1 << 12); // CS High (De-assert)
-
-    // 5. Cấu hình SPI2 Controller
-    // Master mode, Baudrate Prescaler = /32 hoặc /16 (Clock SPI < 2MHz cho an toàn lúc init)
-    SPI2->CR1 = 0; // Clear
-    SPI2->CR1 |= (1 << 2)|(1 << 8)|(1 << 9);    // Master mode, Software CS
-    SPI2->CR1 |= (1 << 0)|(1 << 1);             // CPOL = 1, CPHA = 1 - MODE 3
-    SPI2->CR1 |= (0x04 << 3);                   // fPCLK/32
-    SPI2->CR1 |= (1 << 6); // Enable SPI
-
-    irq_connect_dynamic(15, 2, dma1_stream3_irqhandler, NULL, 0);
-    irq_enable(15);
+static uint32_t spi_calc_br_bits(uint32_t pclk_hz, uint32_t target_hz) {
+    uint32_t div = pclk_hz / target_hz;
+    
+    if (div <= 2)   return 0; /* /2   */
+    if (div <= 4)   return 1; /* /4   */
+    if (div <= 8)   return 2; /* /8   */
+    if (div <= 16)  return 3; /* /16  */
+    if (div <= 32)  return 4; /* /32  */
+    if (div <= 64)  return 5; /* /64  */
+    if (div <= 128) return 6; /* /128 */
+    return 7;                 /* /256 */
 }
 
-static const uint8_t dummy_tx = 0x00;
+int spi_init_hw(const struct device *dev){
+    const struct spi_dev_t *cfg = dev->config;
+    SPI_TypeDef *spi = cfg->regs;
 
-void SPI2_DMA_Transfer(uint8_t *rx_buf, uint16_t size){
-    DMA1_Stream3->CR &= ~(1 << 0);
-    DMA1_Stream4->CR &= ~(1 << 0);
-    while ((DMA1_Stream3->CR & (1 << 0)) || (DMA1_Stream4->CR & (1 << 0)));
-
-    DMA1->LIFCR = (0x3D << 22);
-    DMA1->HIFCR = (0x3D << 0);
-
-    DMA1_Stream3->PAR = (uint32_t)&(SPI2->DR);
-    DMA1_Stream3->M0AR = (uint32_t)rx_buf;
-    DMA1_Stream3->NDTR = size;
-
-    DMA1_Stream3->CR = (0 << 25)|(2 << 16)|(1 << 10)|(1 << 4);
-
-    // TX
-    DMA1_Stream4->PAR = (uint32_t)&(SPI2->DR);
-    DMA1_Stream4->M0AR = (uint32_t)&dummy_tx;
-    DMA1_Stream4->NDTR = size;
-
-    DMA1_Stream4->CR = (0 << 25)|(1 << 16)|(1 << 6)|(1 << 4); // off minc
-
-    // CS Low - choose slave
-    GPIOB->ODR &= ~(1 << 12);
-
-    SPI2->CR2 |= (1 << 0)|(1 << 1); // RXDMA, TXDMA
-
-    DMA1_Stream3->CR |= (1 << 0); // DMA Stream Enable
-    DMA1_Stream4->CR |= (1 << 0);
-
-    if(k_sem_take(&dma1_stream3_signal, K_MSEC(10)) != 0){
-        GPIOB->ODR |= (1 << 12);
+    if(cfg->pcfg){
+        int ret = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
+        if(ret < 0) return ret;
     }
-}
 
-void dma1_stream3_irqhandler(const void *arg){
-    ARG_UNUSED(arg);
-    if(DMA1->LISR & (1 << 27)){
-        DMA1->LIFCR = (0x3D << 22);
-        // Send signal to dma
-        GPIOB->ODR |= (1 << 12); // CS High
-        k_sem_give(&dma1_stream3_signal);
+    if((uintptr_t)spi == SPI2_BASE){
+        RCC->APB1ENR |= (1 << 14); // Bật clock SPI2
     }
+    (void)RCC->APB1ENR;
+
+    if (!gpio_is_ready_dt(&cfg->cs_gpio)) return -ENODEV;
+    
+    gpio_pin_configure_dt(&cfg->cs_gpio, GPIO_OUTPUT_INACTIVE);
+
+    spi->CR1 &= ~(1 << 6);
+    
+    uint32_t pclk1_hz = 42000000;
+    uint32_t br_bit = spi_calc_br_bits(pclk1_hz, cfg->freq);
+    uint32_t spi_cr_val = 0;
+
+    spi_cr_val |= (1 << 2);              // Master mode
+    spi_cr_val |= (1 << 8) | (1 << 9);   // SSI = 1, SSM = 1
+    spi_cr_val |= (br_bit << 3);          // Baudrate
+    spi_cr_val |= (1 << 0) | (1 << 1);   // CPOL = 1, CPHA = 1 (SPI Mode 3)
+    spi_cr_val &= ~(1 << 7);             // MSB first
+
+    spi->CR1 = spi_cr_val;
+    spi->CR1 |= (1 << 6);                // Enable SPI
+
+    irq_connect_dynamic(14, 2, dma1_stream3_irqhandler, dev, 0);
+    irq_enable(14);
+    return 0;
 }
 
-// uint8_t SPI_Transfer(uint8_t data){
-//     while (!(SPI2->SR & (1 << 1)));
-//     *(volatile uint8_t *)&SPI2->DR = data;
-//     while (!(SPI2->SR & (1 << 0)));
-//     return *(volatile uint8_t *)&SPI2->DR;
-// }
-
-int SPI_Transfer_Safe(uint8_t data_out, uint8_t *data_in) {
+int SPI_Transfer_Safe(SPI_TypeDef *spi, uint8_t data_out, uint8_t *data_in) {
     uint32_t timeout = 10000; 
-    // Chờ TXE
-    while (!(SPI2->SR & (1 << 1))) {
+
+    if (spi->SR & (1 << 0)) {
+        volatile uint8_t dummy = *(volatile uint8_t *)&spi->DR;
+        (void)dummy;
+    }
+
+    /* Wait TXE */
+    while (!(spi->SR & (1 << 1))) {
         if (--timeout == 0) return -1; 
     }
-    *(volatile uint8_t *)&SPI2->DR = data_out;
+    
+    *(volatile uint8_t *)&spi->DR = data_out;
+
     timeout = 10000;
-    while (!(SPI2->SR & (1 << 0))) {
+    while (!(spi->SR & (1 << 0))) {
         if (--timeout == 0) return -1; 
     }
-    uint8_t dummy = *(volatile uint8_t *)&SPI2->DR;
+
+    uint8_t rx_data = *(volatile uint8_t *)&spi->DR;
     if (data_in) {
-        *data_in = dummy;
+        *data_in = rx_data;
     }
+
+    /* Wait BSY */
+    timeout = 10000;
+    while (spi->SR & (1 << 7)) {
+        if (--timeout == 0) return -1;
+    }
+
     return 0; 
 }
 
-// Hàm đọc 1 thanh ghi từ PMW3901
-uint8_t pmw3901_read_reg(uint8_t reg_addr) {
+uint8_t pmw3901_read_reg(const struct device *dev, uint8_t reg_addr) {
+    const struct spi_dev_t *cfg = dev->config;
+    SPI_TypeDef *spi = cfg->regs;
     uint8_t val = 0;
-    reg_addr &= 0x7F; // bit 7 = 0 - Read
-    
-    GPIOB->BSRR = (1 << 28);
-    SPI_Transfer_Safe(reg_addr, NULL);
+
+    reg_addr &= 0x7F; // Bit 7 = 0 cho READ
+
+    /* Chuẩn Zephyr ACTIVE LOW: set(1) -> CS LOW (0V) */
+    gpio_pin_set_dt(&cfg->cs_gpio, 1); 
+
+    SPI_Transfer_Safe(spi, reg_addr, NULL);
     k_usleep(50);
-    SPI_Transfer_Safe(0x00, &val);
-    GPIOB->BSRR = (1 << 12);
+    SPI_Transfer_Safe(spi, 0x00, &val);
+
+    /* set(0) -> CS HIGH (3.3V) */
+    gpio_pin_set_dt(&cfg->cs_gpio, 0); 
     k_usleep(200);
-    
+
     return val;
 }
 
-int pmw3901_write_reg(uint8_t reg_addr, uint8_t data) {
-    reg_addr |= 0x80; // Bit 7 = 1 cho WRITE
-    
-    GPIOB->BSRR = (1 << 28); // CS Low
-    k_usleep(10);            // Chờ CS ổn định
+int pmw3901_write_reg(const struct device *dev, uint8_t reg_addr, uint8_t data) {
+    const struct spi_dev_t *cfg = dev->config;
+    SPI_TypeDef *spi = cfg->regs;
 
-    if (SPI_Transfer_Safe(reg_addr, NULL) != 0) {
-        GPIOB->BSRR = (1 << 12); // Luôn phải giải phóng CS nếu lỗi
+    reg_addr |= 0x80; // Bit 7 = 1 cho WRITE
+
+    /* CS ACTIVE (LOW) */
+    gpio_pin_set_dt(&cfg->cs_gpio, 1);
+    k_usleep(10);
+
+    if (SPI_Transfer_Safe(spi, reg_addr, NULL) != 0) {
+        gpio_pin_set_dt(&cfg->cs_gpio, 0); // CS INACTIVE (HIGH)
         return -1;
     }
 
     k_usleep(20); 
 
-    if (SPI_Transfer_Safe(data, NULL) != 0) {
-        GPIOB->BSRR = (1 << 12); // Luôn phải giải phóng CS nếu lỗi
+    if (SPI_Transfer_Safe(spi, data, NULL) != 0) {
+        gpio_pin_set_dt(&cfg->cs_gpio, 0); // CS INACTIVE (HIGH)
         return -1;
     }
 
     k_usleep(10);
-    GPIOB->BSRR = (1 << 12); // CS High
+    gpio_pin_set_dt(&cfg->cs_gpio, 0); // CS INACTIVE (HIGH)
     k_usleep(100);        
-    
+
     return 0;
 }
 
-volatile uint8_t product_id = 0, revision_id = 1,inverse_product = 0;
-void optical_flow_sensor(void) {
-    // Reset SPI bus state bằng cách nhấp nháy CS
-    GPIOB->BSRR = (1 << 28);
+volatile uint8_t product_id = 0, revision_id = 1, inverse_product = 0;
+
+void optical_identify_id(const struct device *dev) {
+    const struct spi_dev_t *cfg = dev->config;
+
+    gpio_pin_set_dt(&cfg->cs_gpio, 0); // INACTIVE (HIGH 3.3V)
     k_usleep(50);
-    GPIOB->BSRR = (1 << 12);
-    k_usleep(1000);
+    gpio_pin_set_dt(&cfg->cs_gpio, 1); // ACTIVE (LOW 0V)
+    k_usleep(50);
+    gpio_pin_set_dt(&cfg->cs_gpio, 0); // INACTIVE (HIGH 3.3V)
+    k_msleep(10);
 
-    product_id = pmw3901_read_reg(PMW3901_PRODUCT_ID);
-    revision_id = pmw3901_read_reg(PMW3901_REVISION_ID);
-    inverse_product = pmw3901_read_reg(PMW3901_INVERSE_PRODUCT_ID);
-
-    GPIOB->BSRR = (1 << 28);
-    k_usleep(10);
-    GPIOB->BSRR = (1 << 12);
-    k_usleep(10);
+    product_id = pmw3901_read_reg(dev, PMW3901_PRODUCT_ID);
+    revision_id = pmw3901_read_reg(dev, PMW3901_REVISION_ID);
+    inverse_product = pmw3901_read_reg(dev, PMW3901_INVERSE_PRODUCT_ID);
 }
 
-void pmw3901_init_registers(void) {
-    // pmw3901_write_reg(0x7F, 0x00);
-
-    pmw3901_write_reg(PMW3901_RST, 0x5A);
-    k_msleep(5);
+void pmw3901_init_registers(const struct device *dev) {
+    pmw3901_write_reg(dev, PMW3901_RST, 0x5A);
+    k_msleep(50);
 
     uint8_t size = sizeof(pmw3901_init_registers_table) / sizeof(pmw3901_init_registers_table[0]);
     for (uint8_t i = 0; i < size; i++) {
-        pmw3901_write_reg(pmw3901_init_registers_table[i][0], pmw3901_init_registers_table[i][1]);
+        pmw3901_write_reg(dev, pmw3901_init_registers_table[i][0], pmw3901_init_registers_table[i][1]);
     }
 
-    k_msleep(100);
+    k_msleep(10);
 
-    uint8_t bit_size = sizeof(pmw3901_bitcraze_added)/sizeof(pmw3901_bitcraze_added[0]);
-    for(uint8_t i = 0; i < bit_size;i++){
-        pmw3901_write_reg(pmw3901_bitcraze_added[i][0], pmw3901_bitcraze_added[i][1]);
+    uint8_t bit_size = sizeof(pmw3901_bitcraze_added) / sizeof(pmw3901_bitcraze_added[0]);
+    for (uint8_t i = 0; i < bit_size; i++) {
+        pmw3901_write_reg(dev, pmw3901_bitcraze_added[i][0], pmw3901_bitcraze_added[i][1]);
     }
     k_msleep(100);
 }
 
-// void pmw3901_read_motion_burst(uint8_t *buffer) {
-//     GPIOB->BSRR = (1 << 28); // CS Low
-//     k_usleep(20);
+volatile int dma1_stream3_count = 0;
+void dma1_stream3_irqhandler(const void *arg) {
+    const struct device *dev = (const struct device *)arg;
+    if (dev == NULL) return;
+    const struct spi_dev_t *cfg = dev->config;
+    SPI_TypeDef *spi = cfg->regs;
 
-//     SPI_Transfer(PMW3901_MOTION_BRUST);
-//     k_usleep(150);
-//     for (int i = 0; i < 12; i++) {
-//         buffer[i] = SPI_Transfer(0x00);
-//     }
-//     k_usleep(50);
-//     GPIOB->BSRR = (1 << 12); // CS High
-//     k_usleep(200);
-// }
+    if (DMA1->LISR & (1 << 27)) {
+        DMA1->LIFCR = (0x3D << 22);
+        spi->CR2 &= ~((1 << 0) | (1 << 1));
+        gpio_pin_set_dt(&cfg->cs_gpio, 0); // CS HIGH (INACTIVE)
+        dma1_stream3_count++;
+        k_sem_give(&dma1_stream3_signal);
+    }
+}
 
-        // // 1. Đọc burst trực tiếp mỗi chu kỳ mà không cần chờ PC2 == 0
-        // pmw3901_read_motion_burst(burst_data);
+static const uint8_t dummy_tx = 0x00;
 
-        // // 2. Lấy các giá trị ra
-        // motion_flag = burst_data[0];
-        // squal       = burst_data[6];
+int pmw3901_read_burst_dma(const struct device *dev, uint8_t *buffer) {
+    const struct spi_dev_t *cfg = dev->config;
+    SPI_TypeDef *spi = cfg->regs;
+    DMA_TypeDef *dma = cfg->dma;
+    DMA_Stream_TypeDef *rx = cfg->dma_rx_stream;
+    DMA_Stream_TypeDef *tx = cfg->dma_tx_stream;
 
-        // // 3. Tạm thời BỎ ĐIỀU KIỆN (squal > 20) để debug xem sensor trả về squal bao nhiêu
-        // // Nếu có bit Motion (motion_flag & 0x80) hoặc đơn giản là có delta khác 0
-        // delta_x = (int16_t)((burst_data[3] << 8) | burst_data[2]);
-        // delta_y = (int16_t)((burst_data[5] << 8) | burst_data[4]);
+    gpio_pin_set_dt(&cfg->cs_gpio, 1);
 
-        // if (delta_x != 0 || delta_y != 0) {
-        //     pos_x += delta_x;
-        //     pos_y += delta_y;
-        // }
+    if (SPI_Transfer_Safe(spi, 0x16, NULL) != 0) {
+        gpio_pin_set_dt(&cfg->cs_gpio, 0); // CS INACTIVE (HIGH 3.3V)
+        return -1;
+    }
 
-        // HAL_Delay(10); // Đọc với chu kỳ ~100Hz
+    k_busy_wait(45);
+
+    uint32_t timeout = 10000;
+    while (spi->SR & (1 << 7)) { // BSY
+        if (--timeout == 0) {
+            gpio_pin_set_dt(&cfg->cs_gpio, 0);
+            return -ETIMEDOUT;
+        }
+    }
+
+    if (spi->SR & (1 << 0)) {
+        volatile uint8_t dummy = *(volatile uint8_t *)&spi->DR;
+        (void)dummy;
+    }
+
+    rx->CR &= ~(1 << 0);
+    tx->CR &= ~(1 << 0);
+    while ((rx->CR & (1 << 0)) | (tx->CR & (1 << 0)));
+
+    dma->LIFCR = 0x0F7D0F7D;
+    dma->HIFCR = 0x0F7D0F7D;
+
+    rx->PAR  = (uint32_t)&(spi->DR);
+    rx->M0AR = (uint32_t)buffer;
+    rx->NDTR = 12; // PMW3901 Burst Read = 12 Bytes
+    rx->CR   = (cfg->dma_rx_channel << 25) | (2 << 16) | (1 << 10) | (1 << 4); // MINC=1, TCIE=1
+
+    tx->PAR  = (uint32_t)&(spi->DR);
+    tx->M0AR = (uint32_t)&dummy_tx;
+    tx->NDTR = 12;
+    tx->CR   = (cfg->dma_tx_channel << 25) | (1 << 16) | (1 << 6) | (1 << 4); // MINC=0, DIR=1 (Mem2Periph)
+
+    spi->CR2 |= (1 << 0) | (1 << 1); // RXDMAEN, TXDMAEN
+    rx->CR |= (1 << 0);
+    tx->CR |= (1 << 0);
+
+    if (k_sem_take(&dma1_stream3_signal, K_MSEC(10)) != 0) {
+        spi->CR2 &= ~((1 << 0) | (1 << 1));
+        gpio_pin_set_dt(&cfg->cs_gpio, 0); // CS INACTIVE (HIGH 3.3V)
+        return -ETIMEDOUT;
+    }
+
+    return 0;
+}
+
+#define DT_DRV_COMPAT vnd_spi_write
+
+#define DRONE_SPI_INIT(inst) \
+    PINCTRL_DT_INST_DEFINE(inst); \
+    static const struct spi_dev_t spi_dev_config_##inst = { \
+        .regs = (SPI_TypeDef *)DT_INST_REG_ADDR(inst), \
+        .freq = DT_INST_PROP_OR(inst, clock_frequency, 2000000), \
+        .pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst), \
+        .cs_gpio = GPIO_DT_SPEC_INST_GET_BY_IDX(inst, cs_gpios, 0), \
+        .dma = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas), \
+                ((DMA_TypeDef *)(DT_REG_ADDR(DT_INST_DMAS_CTLR_BY_NAME(inst, rx)))), \
+                (NULL)), \
+        .dma_rx_stream = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas), \
+                ((DMA_Stream_TypeDef *)(DT_REG_ADDR(DT_INST_DMAS_CTLR_BY_NAME(inst, rx)) + \
+                0x10 + 0x18 * DT_INST_DMAS_CELL_BY_NAME(inst, rx, channel))), \
+                (NULL)), \
+        .dma_rx_channel = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas), \
+                (DT_INST_DMAS_CELL_BY_NAME(inst, rx, slot)), \
+                (0)), \
+        .dma_tx_stream = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas), \
+                ((DMA_Stream_TypeDef *)(DT_REG_ADDR(DT_INST_DMAS_CTLR_BY_NAME(inst, tx)) + \
+                0x10 + 0x18 * DT_INST_DMAS_CELL_BY_NAME(inst, tx, channel))), \
+                (NULL)), \
+        .dma_tx_channel = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas), \
+                (DT_INST_DMAS_CELL_BY_NAME(inst, tx, slot)), \
+                (0)), \
+    }; \
+    DEVICE_DT_INST_DEFINE(inst, spi_init_hw, NULL, NULL, \
+                          &spi_dev_config_##inst, POST_KERNEL, \
+                          50, NULL);
+
+DT_INST_FOREACH_STATUS_OKAY(DRONE_SPI_INIT)

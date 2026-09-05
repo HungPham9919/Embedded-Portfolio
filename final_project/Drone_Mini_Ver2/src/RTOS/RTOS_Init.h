@@ -5,6 +5,7 @@
 #include "zephyr/kernel.h"
 
 #define Default_Thread_Stack_Size 1024
+#define Comms_Thread_Stack_Size 1024
 
 #define BMI088_Thread_Stack_Size 1024
 #define HMC5883_Thread_Stack_Size 512
@@ -15,11 +16,14 @@
 #define INA226_Thread_Stack_Size 512
 
 #define BMI088_Priority 3
-#define PMW3901_Priority 3
+#define PMW3901_Priority 4
 #define HMC5883_Priority 4
-#define INA226_Priority 3
-#define BMP280_Priority 5 
+#define VL53_Priority 4
+
+#define Comms_Priority 5
+#define BMP280_Priority 6 
 #define Default_Priority 6
+#define INA226_Priority 5
 
 #define BMI088_Ready (1 << 0)
 #define BMI088_Failed (1 << 1)
@@ -38,8 +42,10 @@
 #define PMW3901_Ready (1 << 9)
 #define PMW3901_Failed (1 << 10)
 
-#define Motor_Flag (1 << 11)
-#define Radio_Flag (1 << 12)
+#define VL53_Ready (1 << 11)
+
+#define Motor_Flag (1 << 12)
+#define Radio_Flag (1 << 13)
 
 extern volatile int i2c3_error_count, pmw3901_error_init, ina_error_init, bmp_error_init,hmc_error_init; 
 
@@ -52,6 +58,7 @@ extern struct k_sem pmw3901_signal;
 extern struct k_sem radio_signal;
 extern struct k_sem bmp280_signal;
 extern struct k_sem ina226_signal;
+extern struct k_sem vl53_signal;
 
 extern struct k_sem dma1_stream2_signal;
 extern struct k_sem dma1_stream3_signal;
@@ -66,7 +73,7 @@ extern struct k_work ina226_work;
 extern struct k_work bmp280_work;
 extern struct k_work hmc5883_work;
 extern struct k_work pmw3901_work;
-
+extern struct k_work vl53_work;
 // tính stack size
 
 // #include <zephyr/kernel.h>

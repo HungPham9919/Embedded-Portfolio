@@ -1,6 +1,7 @@
 #include "stdio.h"
 #include "Initialize/Init_reg.h"
 #include <stdint.h>
+#include "string.h"
 #include <zephyr/devicetree.h>
 #include "zephyr/device.h"
 #include "zephyr/kernel.h"
@@ -12,12 +13,9 @@
 
 int main(void)
 {
-
     init_usb_shell();
     BUS_Init();
     Init_The_Config_Of_Drone();
-    USART_Configuration();
-    Optical_Flow_Init();
     for(int i = 0; i < 2;i++) {
         GPIOC->ODR ^= (1 << 1); // toggle led
         k_msleep(100);

@@ -1,45 +1,109 @@
 #include "Radio_Communication.h"
-void uart6_irqhandler(const void *arg);
+#include "bmi088.h"
+#include "pmw3901.h"
+#include "INA226.h"
+#include "math.h"
+#include "stm32f405xx.h"
+#include "zephyr/drivers/pinctrl.h"
+#include "zephyr/irq.h"
+#include "zephyr/kernel.h"
+#include <stdio.h>
+#include <string.h>
+#include <sys/_stdint.h>
+#include "zephyr/drivers/pinctrl.h"
 
-void USART_Configuration(void){
-	RCC->APB2ENR |= (1 << 5); // UART 6
-	RCC->AHB1ENR |= (1 << 2); // GPIOC
-	for(volatile int i = 0; i < 100; i++); // wait for stable
+char number[11] = {'0','1','2','3','4','5','6','7','8','9','.'};
 
-	// USART 6 PC6_TX, PC7_RX 84MHz
-	GPIOC->MODER &= ~(3 << 12) &~(3 << 14);
-	GPIOC->MODER |= (2 << 12)|(2 << 14);
+#define DT_DRV_COMPAT vnd_write_usart
 
-	GPIOC->OSPEEDR |= (3 << 12)|(3 << 14);
-	GPIOC->AFR[0] &= ~(0x0F << 24) &~(0x0F << 28);
-	GPIOC->AFR[0] |= (8 << 24)|(8 << 28); // AF8
+const struct device *dev_usart6 = DEVICE_DT_GET(DT_NODELABEL(usart6));
 
-	USART6->CR1 &= ~(1 << 13);
-	USART6->BRR = (5 << 4)|(11 << 0); // 921600
-	USART6->CR1 |= (1 << 2)|(1 << 3)|(1 << 5)|(1 << 13);
+int drone_usart_init_hw(const struct device *dev){
+	const struct usart_dev_t *cfg = dev->config;
+	USART_TypeDef *usart = cfg->regs;
 
-	IRQ_CONNECT(71,6,uart6_irqhandler,NULL,0);
-	irq_enable(71);
-}
-
-void USART6_Send_Char(char c){
-	while((USART6->SR & (1 << 6)) == 0){};
-	USART6->DR = c;
-}
-
-void USART6_Send_String(char *s){
-	while(*s){
-		USART6_Send_Char(*s++);
+    if (cfg->pcfg) {
+        int ret = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
+        if(ret < 0) return ret;
+    }
+	if((uintptr_t)usart == USART6_BASE) {
+		RCC->APB2ENR |= (1 << 5);
+		(void)RCC->APB2ENR;
 	}
+
+	RCC->AHB1ENR |= (1 << 22);
+
+	usart->CR1 &= ~(1 << 13);
+	(void)RCC->AHB1ENR;
+	uint32_t pclk = 84000000; // Tần số APB2 bus
+    uint32_t usartdiv = (pclk + (cfg->baudrate / 2)) / cfg->baudrate; // Tương đương (84M / 115200) = 729 (0x2D9)
+    
+    usart->BRR = (uint16_t)usartdiv;
+	usart->CR1 |= (1 << 2)|(1 << 3)|(1 << 13);
+	k_busy_wait(2000);
+	return 0;
 }
+
+int usart_dma_tx(const struct device *dev, uint8_t *buffer, uint16_t length){
+	if(!dev || !dev->config) return -EINVAL;
+	const struct usart_dev_t *cfg = dev->config;
+	USART_TypeDef *usart = cfg->regs;
+	DMA_TypeDef *dma = cfg->dma;
+	DMA_Stream_TypeDef *dma_tx_stream = cfg->dma_tx_stream;
+
+	dma_tx_stream->CR &= ~(1 << 0);
+	while(dma_tx_stream->CR & (1 << 0)){};
+
+	(void)usart->SR;
+    (void)usart->DR;
+	usart->SR &= ~(1 << 6);
+    dma->LIFCR = 0x0F7D0F7D;
+    dma->HIFCR = 0x0F7D0F7D;
+	dma_tx_stream->FCR = 0;
+
+	dma_tx_stream->PAR = (uint32_t)&usart->DR;
+	dma_tx_stream->M0AR = (uint32_t)buffer;
+	dma_tx_stream->NDTR = length;
+
+	dma_tx_stream->CR = ((cfg->dma_tx_channel & 0x07) << 25)|(1 << 10)|(1 << 6);
+	usart->CR3 |= (1 << 7);
+	dma_tx_stream->CR |= (1 << 0);
+
+	return 0;
+}
+
+int usart_dma_rx(const struct device *dev, uint8_t *buffer, uint16_t length){
+	if(!dev || !dev->config) return -EINVAL;
+	const struct usart_dev_t *cfg = dev->config;
+	USART_TypeDef *usart = cfg->regs;
+	DMA_TypeDef *dma = cfg->dma;
+	DMA_Stream_TypeDef *dma_rx_stream = cfg->dma_rx_stream;
+
+	dma_rx_stream->CR &= ~(1 << 0);
+	while(dma_rx_stream->CR & (1 << 0)){};
+
+    dma->LIFCR = 0x0F7D0F7D;
+    dma->HIFCR = 0x0F7D0F7D;
+	dma_rx_stream->FCR = 0;
+
+	dma_rx_stream->PAR = (uint32_t)&(usart->DR);
+	dma_rx_stream->M0AR = (uint32_t)buffer;
+	dma_rx_stream->NDTR = length;
+
+	dma_rx_stream->CR = ((cfg->dma_rx_channel & 0x7) << 25)|(1 << 10)|(1 << 8)|(1 << 4);
+	usart->CR3 |= (1 << 6); // rx enable
+	dma_rx_stream->CR |= (1 << 0);
+
+	return 0;
+}
+
 volatile int duty = 0;
 int PWM_Converted(char *buffer){
-	char check[11] = {'0','1','2','3','4','5','6','7','8','9'};
 	char temp[4];
 	int k = 0;
 	for(int i = 0; i < strlen(buffer); i++){
 		for(int j = 0; j < 10; j++){
-			if(buffer[i] == check[j]){
+			if(buffer[i] == number[j]){
 				temp[k++] = buffer[i];
 				break;
 			}
@@ -59,12 +123,11 @@ int PWM_Converted(char *buffer){
 }
 
 int Atoi_Converted(char *buffer){
-	char check[11] = {'0','1','2','3','4','5','6','7','8','9'};
 	char temp[2]; // max = local + NULL
 	int k = 0;
 	for(int i = 0; i < strlen(buffer); i++){
 		for(int j = 0; j < 10; j++){
-			if(buffer[i] == check[j]){
+			if(buffer[i] == number[j]){
 				temp[k++] = buffer[i];
 				break;
 			}
@@ -75,27 +138,52 @@ int Atoi_Converted(char *buffer){
 	return atoi(temp);
 }
 
-void uart6_irqhandler(const void *arg){
-	ARG_UNUSED(arg);
-	
-    if ((USART6->SR) & (1 << 5)) {
-        char rx_byte = (char)USART6->DR;
-    	static char rx_buffer[32];
-		static int idx = 0;
-        if (rx_byte == '\n' || rx_byte == '\r') {
-            if (idx > 0) {
-            	rx_buffer[idx] = '\0';
-                idx = 0;
-            }
-        }
-        else {
-            if (idx < 31) {
-                if (rx_byte >= 32 && rx_byte <= 126) {
-                	rx_buffer[idx++] = rx_byte;
-                }
-            } else {
-                idx = 0;
-            }
-        }
-    }
+void Leader_Data_To_Followers(void){ // Integer to char
+	Drone_data_transfer packet;
+	packet.roll_tsf = (int16_t)(roundf(drone_angle.Roll_angle * 100.0f));
+	packet.pitch_tsf = (int16_t)(roundf(drone_angle.Pitch_angle * 100.0f));
+	packet.yaw_tsf = (int16_t)(roundf(drone_angle.Yaw_angle * 100.0f));
+	packet.x_pos_tsf = drone_pos.x_pos;
+	packet.y_pos_tsf = drone_pos.y_pos;
+	packet.z_pos_tsf = drone_pos.z_pos;
+
+	usart_dma_tx(dev_usart6, (uint8_t *)&packet, sizeof(Drone_data_transfer));
 }
+
+void Follower_Data_From_Leader(void){ // Char to integer
+	// RPY + XYZ + PIN + % PWM
+	// IRQ
+}
+
+
+#define DRONE_USART_INIT(inst)                                                 \
+    PINCTRL_DT_INST_DEFINE(inst);                                              \
+    static const struct usart_dev_t usart_dev_config_##inst = {               \
+        .regs = (USART_TypeDef *)DT_INST_REG_ADDR(inst),                       \
+        .pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                          \
+        .baudrate = DT_INST_PROP_OR(inst, current_speed, 115200),             \
+        .dma = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas),                  \
+                     ((DMA_TypeDef *)DT_REG_ADDR(DT_INST_DMAS_CTLR_BY_NAME(inst, rx))), \
+                     (NULL)),                                                  \
+        /* DMA RX Stream & Channel */                                          \
+        .dma_rx_stream = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas),        \
+                    ((DMA_Stream_TypeDef *)(DT_REG_ADDR(DT_INST_DMAS_CTLR_BY_NAME(inst, rx)) + \
+                    0x10 + 0x18 * DT_INST_DMAS_CELL_BY_NAME(inst, rx, channel))), \
+                    (NULL)),                                                  \
+        .dma_rx_channel = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas),       \
+                    (DT_INST_DMAS_CELL_BY_NAME(inst, rx, slot)),              \
+                    (0)),                                                     \
+        /* DMA TX Stream & Channel */                                          \
+        .dma_tx_stream = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas),        \
+                    ((DMA_Stream_TypeDef *)(DT_REG_ADDR(DT_INST_DMAS_CTLR_BY_NAME(inst, tx)) + \
+                    0x10 + 0x18 * DT_INST_DMAS_CELL_BY_NAME(inst, tx, channel))), \
+                    (NULL)),                                                  \
+        .dma_tx_channel = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, dmas),       \
+                    (DT_INST_DMAS_CELL_BY_NAME(inst, tx, slot)),              \
+                    (0)),                                                     \
+    };                                                                         \
+    DEVICE_DT_INST_DEFINE(inst, drone_usart_init_hw, NULL, NULL,               \
+                          &usart_dev_config_##inst, POST_KERNEL,               \
+                          50, NULL);
+
+DT_INST_FOREACH_STATUS_OKAY(DRONE_USART_INIT)

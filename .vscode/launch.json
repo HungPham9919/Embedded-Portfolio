@@ -61,10 +61,6 @@
                 "interface/stlink.cfg",
                 "target/nrf51.cfg"
             ],
-            "liveWatch": {
-                "enabled": true,
-                "samplesPerSecond": 20
-            },
             "runToEntryPoint": "main",
             "showDevDebugOutput": "none"
         }
