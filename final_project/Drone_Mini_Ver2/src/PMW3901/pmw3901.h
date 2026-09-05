@@ -50,9 +50,10 @@ extern volatile uint8_t squal;
 extern Drone_Pos drone_pos;
 extern volatile uint8_t product_id, revision_id,inverse_product;
 extern const struct device *dev_spi2;
+
 void dma1_stream3_irqhandler(const void *arg);
-void dma1_stream4_irqhandler(const void *arg);
 void optical_identify_id(const struct device *dev);
 void pmw3901_init_registers(const struct device *dev);
+uint8_t pmw3901_read_reg(const struct device *dev, uint8_t reg_addr);
 int pmw3901_read_burst_dma(const struct device *dev, uint8_t *buffer);
 #endif

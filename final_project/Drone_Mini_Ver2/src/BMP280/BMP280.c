@@ -70,20 +70,22 @@ double compensate_pressure(int32_t adc_P) {
 }
 
 volatile float filtered_alt = 0;
-void Calculate_Pressure(uint8_t *bmp_data){
-	uint32_t Press_raw = (uint32_t)((bmp_data[0] << 12)|(bmp_data[1] << 4)|(bmp_data[2] >> 4));
-	int32_t Temp_raw = (int32_t)((bmp_data[3] << 12)|(bmp_data[4] << 4)|(bmp_data[5] >> 4));
+float Calculate_Pressure(uint8_t *bmp_data) {
 
-	int32_t var1, var2;
-	var1 = ((((Temp_raw >> 3) - ((int32_t)calib.dig_T1 << 1))) * ((int32_t)calib.dig_T2)) >> 11;
-	var2 = (((((Temp_raw >> 4) - ((int32_t)calib.dig_T1)) * ((Temp_raw >> 4) - ((int32_t)calib.dig_T1))) >> 12) * ((int32_t)calib.dig_T3)) >> 14;
-	t_fine = var1 + var2;
+    uint32_t Press_raw = ((uint32_t)bmp_data[0] << 12) | ((uint32_t)bmp_data[1] << 4) | ((uint32_t)bmp_data[2] >> 4);
+    int32_t Temp_raw   = ((int32_t)bmp_data[3] << 12)  | ((int32_t)bmp_data[4] << 4)  | ((int32_t)bmp_data[5] >> 4);
 
-	double pressure_pa = compensate_pressure(Press_raw);
+    int32_t var1, var2;
+    var1 = ((((Temp_raw >> 3) - ((int32_t)calib.dig_T1 << 1))) * ((int32_t)calib.dig_T2)) >> 11;
+    var2 = (((((Temp_raw >> 4) - ((int32_t)calib.dig_T1)) * ((Temp_raw >> 4) - ((int32_t)calib.dig_T1))) >> 12) * ((int32_t)calib.dig_T3)) >> 14;
+    t_fine = var1 + var2;
 
-	double p0 = 101325.0; // Áp suất mực nước biển
-	float altitude = 44330.0 * (1.0 - pow(pressure_pa / p0, 0.1903));
+    double pressure_pa = compensate_pressure(Press_raw);
 
-	    // 4. Lọc (Ví dụ: Lọc trung bình cộng đơn giản)
-	filtered_alt = 0.95f * filtered_alt + 0.05f * altitude;
+    float p0 = 101325.0f; // Áp suất chuẩn mực nước biển
+    float altitude = 44330.0f * (1.0f - powf((float)pressure_pa / p0, 0.1903f));
+
+    filtered_alt = 0.95f * filtered_alt + 0.05f * altitude;
+
+    return filtered_alt; 
 }

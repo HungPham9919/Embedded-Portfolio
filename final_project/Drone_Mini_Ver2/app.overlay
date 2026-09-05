@@ -90,21 +90,12 @@
     compatible = "vnd,spi-write";
     pinctrl-0 = <&spi2_sck_pb13 &spi2_miso_pb14 &spi2_mosi_pb15>;
     pinctrl-names = "default";
+    cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>;
     clock-frequency = <2000000>; /* Tần số 2MHz */
 
     dmas = <&dma1 3 0 STM32_DMA_PERIPH_TO_MEMORY STM32_DMA_PRIORITY_HIGH>,
            <&dma1 4 0 STM32_DMA_MEMORY_TO_PERIPH STM32_DMA_PRIORITY_HIGH>;
     dma-names = "rx", "tx";
-};
-
-/ {
-    pmw_cs: pmw_cs {
-        compatible = "gpio-leds";
-        pmw_cs_gpio: pmw_cs_gpio {
-            gpios = <&gpiob 12 GPIO_ACTIVE_HIGH>;
-            label = "PMW3901 CS";
-        };
-    };
 };
 
 / {

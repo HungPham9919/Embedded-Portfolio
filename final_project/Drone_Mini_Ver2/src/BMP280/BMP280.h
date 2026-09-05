@@ -12,7 +12,7 @@
 #define BMP280_ID 0xD0
 #define BMP280_MEASURE 0xF4
 #define BMP280_CONFIG 0xF5
-#define BMP280_PRESS 0xF7 // F7-F9
+#define BMP280_PRESS 0xF7 // F7-F9 press || FA-FC temp
 #define BMP280_Calib 0x88
 
 /*
@@ -29,5 +29,5 @@ extern volatile uint8_t BMP_ID;
 
 int BMP280_Initialized(void);
 int BMP280_Calibration(void);
-void Calculate_Pressure(uint8_t *bmp_data);
+float Calculate_Pressure(uint8_t *bmp_data);
 #endif

@@ -24,6 +24,7 @@ zephyr_include_directories(
     src/I2C_Progress
     src/Ranging_Sensor
     src/Ranging_Sensor/core/inc
+    src/Ranging_Sensor/core/src
     src/USB_Debugging
 )
 

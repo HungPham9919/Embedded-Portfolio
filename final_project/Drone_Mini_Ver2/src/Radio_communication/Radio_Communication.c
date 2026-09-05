@@ -138,20 +138,7 @@ int Atoi_Converted(char *buffer){
 	return atoi(temp);
 }
 
-typedef struct __attribute__((packed)){
-	int16_t roll_tsf;
-	int16_t pitch_tsf;
-	int16_t yaw_tsf;
-	int x_pos_tsf;
-	int y_pos_tsf;
-	int z_pos_tsf;
-	int16_t pin_tsf;
-	int16_t pwm_tsf;
-} Drone_data_transfer;
-
 void Leader_Data_To_Followers(void){ // Integer to char
-	// RPY + XYZ + PIN + % PWM 
-	// Send String
 	Drone_data_transfer packet;
 	packet.roll_tsf = (int16_t)(roundf(drone_angle.Roll_angle * 100.0f));
 	packet.pitch_tsf = (int16_t)(roundf(drone_angle.Pitch_angle * 100.0f));
@@ -159,7 +146,6 @@ void Leader_Data_To_Followers(void){ // Integer to char
 	packet.x_pos_tsf = drone_pos.x_pos;
 	packet.y_pos_tsf = drone_pos.y_pos;
 	packet.z_pos_tsf = drone_pos.z_pos;
-	packet.pin_tsf = (int16_t)(roundf(Current_voltage * 100.0f));
 
 	usart_dma_tx(dev_usart6, (uint8_t *)&packet, sizeof(Drone_data_transfer));
 }
@@ -201,24 +187,3 @@ void Follower_Data_From_Leader(void){ // Char to integer
                           50, NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(DRONE_USART_INIT)
-
-
-// void USART_Configuration(void){
-// 	RCC->APB2ENR |= (1 << 5); // UART 6
-// 	for(volatile int i = 0; i < 100; i++); // wait for stable
-
-// 	// USART 6 PC6_TX, PC7_RX 84MHz
-// 	GPIOC->MODER &= ~(3 << 12) &~(3 << 14);
-// 	GPIOC->MODER |= (2 << 12)|(2 << 14);
-
-// 	GPIOC->OSPEEDR |= (3 << 12)|(3 << 14);
-// 	GPIOC->AFR[0] &= ~(0x0F << 24) &~(0x0F << 28);
-// 	GPIOC->AFR[0] |= (8 << 24)|(8 << 28); // AF8
-
-// 	USART6->CR1 &= ~(1 << 13);
-// 	USART6->BRR = (5 << 4)|(11 << 0); // 921600
-// 	USART6->CR1 |= (1 << 2)|(1 << 3)|(1 << 5)|(1 << 13);
-
-// 	IRQ_CONNECT(71,6,usart6_irqhandler,NULL,0);
-// 	irq_enable(71);
-// }

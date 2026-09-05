@@ -25,5 +25,14 @@ struct usart_dev_t {
     uint32_t dma_tx_channel;
 };
 
+typedef struct __attribute__((packed)){
+	int16_t roll_tsf;
+	int16_t pitch_tsf;
+	int16_t yaw_tsf;
+	int x_pos_tsf;
+	int y_pos_tsf;
+	int z_pos_tsf;
+	int16_t pwm_tsf;
+} Drone_data_transfer;
 
 #endif

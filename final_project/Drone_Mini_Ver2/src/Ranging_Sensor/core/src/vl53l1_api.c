@@ -1125,9 +1125,6 @@ VL53L1_Error VL53L1_GetDistanceMode(VL53L1_DEV Dev,
 	return Status;
 }
 
-
-
-
 VL53L1_Error VL53L1_SetMeasurementTimingBudgetMicroSeconds(VL53L1_DEV Dev,
 	uint32_t MeasurementTimingBudgetMicroSeconds)
 {
