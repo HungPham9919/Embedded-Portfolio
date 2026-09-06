@@ -337,6 +337,7 @@ void INA226_Task(void *p1, void *p2, void *p3){
 
     }
 }
+
 static uint8_t rx_buffer[256];
 void Radio_Communication(void *p1,void *p2, void *p3){ // Commands -> Leader
     k_event_wait(&Initial_State_events, Radio_Ready, false, K_FOREVER);
@@ -365,21 +366,12 @@ void Radio_Communication(void *p1,void *p2, void *p3){ // Commands -> Leader
     }
 }
 
-void Comms_Task(void *p1, void *p2, void *p3){
-    k_event_wait(&Initial_State_events, Comms_Flag, false, K_FOREVER);
-    while (1) {
-        Leader_Data_To_Followers();
-        k_msleep(50); // 20 Hz
-    }
-}
-
 K_THREAD_DEFINE(start_default_id,Default_Thread_Stack_Size,Start_Default_Task,NULL,NULL,NULL,Default_Priority,0,0);
 K_THREAD_DEFINE(bmi088_id,BMI088_Thread_Stack_Size,BMI088_Task,NULL,NULL,NULL,BMI088_Priority,0,0);
 K_THREAD_DEFINE(pmw3901_id,PMW3901_Thread_Stack_Size,PMW3901_Task,NULL,NULL,NULL,PMW3901_Priority,0,0);
 K_THREAD_DEFINE(bmp280_id,BMP280_Thread_Stack_Size,BMP280_Task,NULL,NULL,NULL,BMP280_Priority,0,0);
 K_THREAD_DEFINE(hmc5883_id, HMC5883_Thread_Stack_Size, HMC5883_Task, NULL, NULL, NULL, HMC5883_Priority, 0, 0);
 K_THREAD_DEFINE(ina226_id, INA226_Thread_Stack_Size, INA226_Task, NULL, NULL, NULL, INA226_Priority, 0,0);
-K_THREAD_DEFINE(comms_id, Comms_Thread_Stack_Size, Comms_Task, NULL,NULL,NULL,Comms_Priority,0,0);
 K_THREAD_DEFINE(vl53_id, VL53_Thread_Stack_Size,VL53_Task,NULL,NULL,NULL,VL53_Priority,0,0);
 
 // Mutex
@@ -387,7 +379,6 @@ K_MUTEX_DEFINE(i2c3_mutex);
 K_MUTEX_DEFINE(i2c1_mutex);
 
 // Semaphore
-
 K_SEM_DEFINE(bmi088_signal,0,1);
 K_SEM_DEFINE(HMC5883_signal,0,1);
 K_SEM_DEFINE(pmw3901_signal,0,1);
@@ -395,7 +386,6 @@ K_SEM_DEFINE(radio_signal,0,1);
 K_SEM_DEFINE(bmp280_signal,0,1);
 K_SEM_DEFINE(ina226_signal,0,1);
 K_SEM_DEFINE(vl53_signal,0,1);
-K_SEM_DEFINE(Comms_signal, 0, 1);
 
 K_SEM_DEFINE(dma1_stream2_signal,0,1);
 K_SEM_DEFINE(dma1_stream3_signal,0,1);

@@ -158,19 +158,6 @@ int Atoi_Converted(char *buffer){
 }
 
 Drone_data_transfer packet;
-void Leader_Data_To_Followers(void){ // Integer to char
-	packet.packet_id = PACKET_ID_TELE;
-	packet.roll_tsf = (int16_t)(roundf(drone_angle.Roll_angle * 100.0f));
-	packet.pitch_tsf = (int16_t)(roundf(drone_angle.Pitch_angle * 100.0f));
-	packet.yaw_tsf = (int16_t)(roundf(drone_angle.Yaw_angle * 100.0f));
-	packet.x_pos_tsf = drone_pos.x_pos;
-	packet.y_pos_tsf = drone_pos.y_pos;
-	packet.z_pos_tsf = drone_pos.z_pos;
-
-	usart_dma_tx(dev_usart6, (uint8_t *)&packet, sizeof(Drone_data_transfer));
-	usart_dma_wait_complete(dev_usart6);
-}
-
 void Follower_Data_From_Leader(void){ // Char to integer
 	// RPY + XYZ + PIN + % PWM
 	// IRQ
