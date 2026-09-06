@@ -13,9 +13,10 @@
 #include "zephyr/drivers/pinctrl.h"
 
 char number[11] = {'0','1','2','3','4','5','6','7','8','9','.'};
+Sensor_Status sensor_state;
+void dma2_stream1_irqhandler(const void *arg);
 
 #define DT_DRV_COMPAT vnd_write_usart
-
 const struct device *dev_usart6 = DEVICE_DT_GET(DT_NODELABEL(usart6));
 
 int drone_usart_init_hw(const struct device *dev){
@@ -31,7 +32,7 @@ int drone_usart_init_hw(const struct device *dev){
 		(void)RCC->APB2ENR;
 	}
 
-	RCC->AHB1ENR |= (1 << 22);
+	RCC->AHB1ENR |= (1 << 22); // DMA2 enable
 
 	usart->CR1 &= ~(1 << 13);
 	(void)RCC->AHB1ENR;
@@ -40,6 +41,10 @@ int drone_usart_init_hw(const struct device *dev){
     
     usart->BRR = (uint16_t)usartdiv;
 	usart->CR1 |= (1 << 2)|(1 << 3)|(1 << 13);
+
+	IRQ_CONNECT(DMA2_Stream1_IRQn, 2, dma2_stream1_irqhandler, NULL, 0);
+	irq_enable(DMA2_Stream1_IRQn);
+
 	k_busy_wait(2000);
 	return 0;
 }
@@ -72,6 +77,12 @@ int usart_dma_tx(const struct device *dev, uint8_t *buffer, uint16_t length){
 	return 0;
 }
 
+void usart_dma_wait_complete(const struct device *dev) {
+    const struct usart_dev_t *cfg = dev->config;
+    while (cfg->dma_tx_stream->CR & (1 << 0));
+    while (!(cfg->regs->SR & (1 << 6)));
+}
+
 int usart_dma_rx(const struct device *dev, uint8_t *buffer, uint16_t length){
 	if(!dev || !dev->config) return -EINVAL;
 	const struct usart_dev_t *cfg = dev->config;
@@ -95,6 +106,14 @@ int usart_dma_rx(const struct device *dev, uint8_t *buffer, uint16_t length){
 	dma_rx_stream->CR |= (1 << 0);
 
 	return 0;
+}
+
+void dma2_stream1_irqhandler(const void *arg){ // USART_RX
+	ARG_UNUSED(arg);
+	if(DMA2->LISR & (1 << 5)){
+		DMA2->LIFCR = (0x3D << 6);
+		k_sem_give(&dma2_stream1_signal);
+	}
 }
 
 volatile int duty = 0;
@@ -138,8 +157,9 @@ int Atoi_Converted(char *buffer){
 	return atoi(temp);
 }
 
+Drone_data_transfer packet;
 void Leader_Data_To_Followers(void){ // Integer to char
-	Drone_data_transfer packet;
+	packet.packet_id = PACKET_ID_TELE;
 	packet.roll_tsf = (int16_t)(roundf(drone_angle.Roll_angle * 100.0f));
 	packet.pitch_tsf = (int16_t)(roundf(drone_angle.Pitch_angle * 100.0f));
 	packet.yaw_tsf = (int16_t)(roundf(drone_angle.Yaw_angle * 100.0f));
@@ -148,6 +168,7 @@ void Leader_Data_To_Followers(void){ // Integer to char
 	packet.z_pos_tsf = drone_pos.z_pos;
 
 	usart_dma_tx(dev_usart6, (uint8_t *)&packet, sizeof(Drone_data_transfer));
+	usart_dma_wait_complete(dev_usart6);
 }
 
 void Follower_Data_From_Leader(void){ // Char to integer
