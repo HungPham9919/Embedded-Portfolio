@@ -8,8 +8,11 @@
 #include "PMW3901/pmw3901.h"
 #include "VL53L1X.h"
 #include "Radio_communication/Radio_Communication.h"
+#include "PID_Controller/PID.h"
+#include "Extended_Kalman_Filter/EKF.h"
 
 #include "stm32f405xx.h"
+#include "stm32f4xx.h"
 #include "vl53l1_api.h"
 #include "vl53l1_core.h"
 #include "vl53l1_def.h"
@@ -182,8 +185,13 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     // else printk("PMW3901 Failed \n");
 
     EXTI->IMR |= (1 << 11)|(1 << 10)|(1 << 13)|(1 << 14)|(1 << 9)|(1 << 8)|(1 << 0); // Enable interrupt
+    Setup_PID_For_Closed_Loop();
+    kalman_init();
+    
     GPIOC->BSRR = (1 << 1); // on led
-    k_event_post(&Initial_State_events,Radio_Ready);
+    // k_event_post(&Initial_State_events,Radio_Ready);
+    // k_event_post(&Initial_State_events, Position_Loop_Ready);
+    // k_event_post(&Initial_State_events, Angle_Loop_Ready);
 
     // AT24LC
     k_thread_abort(k_current_get());
@@ -210,10 +218,10 @@ void BMI088_Task(void *p1, void *p2, void *p3){     // 200Hz
             k_mutex_unlock(&i2c3_mutex);
         }
         Calculate_And_Filter_Angle(acc_data,gyro_data,dt);
+        
         packet.roll_tsf = drone_angle.Roll_angle;
         packet.pitch_tsf = drone_angle.Pitch_angle;
         packet.yaw_tsf = drone_angle.Yaw_angle;
-        // cal PID
     }
 }
 
@@ -251,7 +259,7 @@ void VL53_Task(void *p1, void *p2, void *p3){
         if(k_mutex_lock(&i2c3_mutex, K_FOREVER) == 0){
             if (VL53L1_GetRangingMeasurementData(vl53_dev, &RangingData) == VL53L1_ERROR_NONE) {
                 if (RangingData.RangeStatus == 0) {
-                    packet.z_pos_tsf = RangingData.RangeMilliMeter;
+                    packet.z_pos_tsf = RangingData.RangeMilliMeter; // mm
                 }
             }
             VL53L1_WrByte(vl53_dev, 0x0086, 0x01);
@@ -284,7 +292,6 @@ void PMW3901_Task(void *p1, void *p2, void *p3) {
                 packet.x_pos_tsf += delta_x;
                 packet.y_pos_tsf += delta_y;
             }
-            // Calculate PID position control...
         } else {
             pmw3901_read_reg(dev_spi2, 0x02); 
             k_work_submit(&pmw3901_work);
@@ -334,10 +341,10 @@ void INA226_Task(void *p1, void *p2, void *p3){
         int16_t raw_volatge = (int16_t)(bus_volatage[0] << 8 | bus_volatage[1]);
         Current_voltage = raw_volatge*0.00125f;
         // check voltage and call landing function -> PID local Z
-
     }
 }
-static uint8_t rx_buffer[256];
+
+static uint8_t rx_buffer[256]; // stop temporary
 void Radio_Communication(void *p1,void *p2, void *p3){ // Commands -> Leader
     k_event_wait(&Initial_State_events, Radio_Ready, false, K_FOREVER);
     usart_dma_tx(dev_usart6,(uint8_t *)&sensor_state ,sizeof(Sensor_Status));
@@ -358,18 +365,34 @@ void Radio_Communication(void *p1,void *p2, void *p3){ // Commands -> Leader
                     // Set PID Z to Land
                 }
                 break;
-            case PACKET_ID_TELE:
-                Follower_Data_From_Leader();
-                break;
         }
     }
 }
 
-void Comms_Task(void *p1, void *p2, void *p3){
+void Comms_Task(void *p1, void *p2, void *p3){ // Stop comporary
     k_event_wait(&Initial_State_events, Comms_Flag, false, K_FOREVER);
     while (1) {
         Leader_Data_To_Followers();
         k_msleep(50); // 20 Hz
+    }
+}
+
+void Position_Loop_Task(void *p1, void *p2, void *p3){ // testing
+    local_desired.x = 0;
+    local_desired.y = 0;
+    local_desired.z = 100; // 100 mm
+
+    k_event_wait(&Initial_State_events, Position_Loop_Ready, false, K_FOREVER);
+    while(1){
+        Position_Loop_PID(local_desired.x, local_desired.y, local_desired.z);
+        k_msleep(20); // 50 Hz
+    }
+}
+
+void Angle_Loop_Task(void *p1, void *p2, void *p3){ // Stop comporary
+    k_event_wait(&Initial_State_events, Angle_Loop_Ready, false, K_FOREVER);
+    while(1){
+        k_msleep(1); // 1KHz
     }
 }
 
@@ -382,6 +405,9 @@ K_THREAD_DEFINE(ina226_id, INA226_Thread_Stack_Size, INA226_Task, NULL, NULL, NU
 K_THREAD_DEFINE(comms_id, Comms_Thread_Stack_Size, Comms_Task, NULL,NULL,NULL,Comms_Priority,0,0);
 K_THREAD_DEFINE(vl53_id, VL53_Thread_Stack_Size,VL53_Task,NULL,NULL,NULL,VL53_Priority,0,0);
 
+// PID
+K_THREAD_DEFINE(pos_id, Position_Loop_Stack_Size, Position_Loop_Task, NULL, NULL, NULL, Position_Priority, 0, 0);
+K_THREAD_DEFINE(angle_id,Angle_Loop_Stack_Size,Angle_Loop_Task,NULL,NULL,NULL,Angle_Priority,0,0);
 // Mutex
 K_MUTEX_DEFINE(i2c3_mutex);
 K_MUTEX_DEFINE(i2c1_mutex);

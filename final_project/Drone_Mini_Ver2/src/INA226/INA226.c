@@ -7,7 +7,7 @@
 
 volatile uint16_t INA226_ID = 0;
 volatile uint16_t Danger_Voltage = 0;
-volatile float Current_voltage = 0;
+float Current_voltage = 0;
 int INA226_Initialized(void){
     uint8_t ID[2] = {0};
 

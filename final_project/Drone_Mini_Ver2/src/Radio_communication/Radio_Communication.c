@@ -171,12 +171,6 @@ void Leader_Data_To_Followers(void){ // Integer to char
 	usart_dma_wait_complete(dev_usart6);
 }
 
-void Follower_Data_From_Leader(void){ // Char to integer
-	// RPY + XYZ + PIN + % PWM
-	// IRQ
-}
-
-
 #define DRONE_USART_INIT(inst)                                                 \
     PINCTRL_DT_INST_DEFINE(inst);                                              \
     static const struct usart_dev_t usart_dev_config_##inst = {               \

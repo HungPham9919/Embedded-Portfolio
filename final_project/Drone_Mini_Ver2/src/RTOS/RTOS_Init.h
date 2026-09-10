@@ -15,37 +15,34 @@
 #define BMP280_Thread_Stack_Size 512
 #define INA226_Thread_Stack_Size 512
 
-#define BMI088_Priority 3
-#define PMW3901_Priority 4
-#define HMC5883_Priority 4
-#define VL53_Priority 4
+// PID loop
+#define Position_Loop_Stack_Size 1024
+#define Angle_Loop_Stack_Size 1024
 
-#define Comms_Priority 5
-#define BMP280_Priority 6 
-#define Default_Priority 6
-#define INA226_Priority 5
+#define Position_Priority 6
+#define Angle_Priority 3
+
+#define BMI088_Priority 4
+#define PMW3901_Priority 5
+#define HMC5883_Priority 5
+#define VL53_Priority 5
+
+#define Comms_Priority 6
+#define INA226_Priority 6
+#define BMP280_Priority 7 
+#define Default_Priority 7
 
 #define BMI088_Ready (1 << 0)
-#define BMI088_Failed (1 << 1)
-
-#define HMC5883_Ready (1 << 2)
-#define HMC5883_Failed (1 << 3)
-
-#define BMP280_Ready (1 << 4)
-#define BMP280_Failed (1 << 5)
-
-#define INA226_Ready (1 << 6)
-#define INA226_Failed (1 << 7)
-
-#define AT24_Flag (1 << 8)
-
-#define PMW3901_Ready (1 << 9)
-#define PMW3901_Failed (1 << 10)
-
-#define VL53_Ready (1 << 11)
-
-#define Comms_Flag (1 << 12)
-#define Radio_Ready (1 << 13)
+#define HMC5883_Ready (1 << 1)
+#define BMP280_Ready (1 << 2)
+#define INA226_Ready (1 << 3)
+#define AT24_Flag (1 << 4)
+#define PMW3901_Ready (1 << 5)
+#define VL53_Ready (1 << 6)
+#define Comms_Flag (1 << 7)
+#define Radio_Ready (1 << 8)
+#define Position_Loop_Ready (1 << 9)
+#define Angle_Loop_Ready (1 << 10)
 
 extern volatile int i2c3_error_count, pmw3901_error_init, ina_error_init, bmp_error_init,hmc_error_init; 
 

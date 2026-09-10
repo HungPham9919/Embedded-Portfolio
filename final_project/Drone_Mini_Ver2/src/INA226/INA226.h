@@ -19,7 +19,7 @@
 
 extern volatile uint16_t INA226_ID;
 extern volatile uint16_t Danger_Voltage;
-extern volatile float Current_voltage;
+extern float Current_voltage;
 int INA226_Initialized(void);
 
 #endif

@@ -17,7 +17,6 @@ int usart_dma_tx(const struct device *dev, uint8_t *buffer, uint16_t length);
 void usart_dma_wait_complete(const struct device *dev);
 int usart_dma_rx(const struct device *dev, uint8_t *buffer, uint16_t length);
 void Leader_Data_To_Followers(void);
-void Follower_Data_From_Leader(void);
 
 struct usart_dev_t {
     USART_TypeDef *regs;
