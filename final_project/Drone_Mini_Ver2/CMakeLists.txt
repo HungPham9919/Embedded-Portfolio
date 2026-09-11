@@ -26,6 +26,8 @@ zephyr_include_directories(
     src/Ranging_Sensor/core/inc
     src/Ranging_Sensor/core/src
     src/USB_Debugging
+    src/Extended_Kalman_Filter
+    src/PID
 )
 
 # Khai báo nguồn file .c
@@ -46,6 +48,8 @@ file(GLOB_RECURSE ALL_SOURCES
     Ranging_Sensor/*.c
     Ranging_Sensor/core/src/*.c
     USB_Debugging/*.c
+    Extended_Kalman_Filter/*.c
+    PID/*.c
 )
 
 target_sources(app PRIVATE ${ALL_SOURCES})

@@ -8,8 +8,11 @@
 #include "PMW3901/pmw3901.h"
 #include "VL53L1X.h"
 #include "Radio_communication/Radio_Communication.h"
+#include "PID_Controller/PID.h"
+#include "Extended_Kalman_Filter/EKF.h"
 
 #include "stm32f405xx.h"
+#include "stm32f4xx.h"
 #include "vl53l1_api.h"
 #include "vl53l1_core.h"
 #include "vl53l1_def.h"
@@ -69,8 +72,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     drone_sensor_addr.sensor6 = sensors_addr[5];
     drone_sensor_addr.sensor7 = sensors_addr[6];
 
-    // printk("Found all Sensor \n");
-
     // BMI088
     while (1) {
         if(bmi_error_init > 10){
@@ -85,7 +86,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_work_submit(&bmi088_work);
         k_msleep(10);
     }
-    // printk("BMI088 OK \n");
 
     // HMC5883
     while (1) {
@@ -102,9 +102,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(10);
     }
 
-    // if(hmc_error_init < 10) printk("HMC5883 OK \n");
-    // else printk("HMC5883 Failed \n");
-
     // Vl53L1X
     while(1){
         if(vl53_error_init > 10) {
@@ -112,19 +109,17 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
             break;
         }
         if(VL53L1_Init(vl53_dev) == VL53L1_ERROR_NONE){
-            VL53L1_StartMeasurement(vl53_dev);
-            VL53L1_WrByte(vl53_dev, 0x0046, 0x04);
-            sensor_state.vl53_state = true;
-            k_event_post(&Initial_State_events, VL53_Ready);
-            break;
+            // Start đo lần đầu
+            if (VL53L1_StartMeasurement(vl53_dev) == VL53L1_ERROR_NONE) {
+                VL53L1_ClearInterruptAndStartMeasurement(vl53_dev);
+                sensor_state.vl53_state = true;
+                k_event_post(&Initial_State_events, VL53_Ready);
+                break;
+            }
         }
         k_work_submit(&vl53_work);
         k_msleep(10);
     }
-
-    // if (vl53_error_init < 10) {
-    //     printk("VL53L1X OK\n");
-    // }
 
     // INA226
     while(1){
@@ -141,9 +136,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(5);
     }
 
-    // if(ina_error_init < 10) printk("INA226 OK \n");
-    // else printk("INA226 Failed \n");
-
     // BMP280
     while (1) {
         if(bmp_error_init > 10){
@@ -159,10 +151,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(5);
     }
 
-    // if(bmp_error_init < 10) printk("BMP280 OK \n");
-    // else printk("BMP280 Failed \n");
-
-        // PMW3901
+    // PMW3901
     while (1) {
         if(pmw3901_error_init > 10){
             sensor_state.pmw3901_state = false;
@@ -178,13 +167,19 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(15);
     }
     pmw3901_init_registers(dev_spi2);
-    // if(pmw3901_error_init < 10) printk("PMW3901 OK \n");
-    // else printk("PMW3901 Failed \n");
 
+    if(sensor_state.vl53_state){
+        k_mutex_lock(&i2c3_mutex, K_FOREVER);
+        VL53L1_ClearInterruptAndStartMeasurement(vl53_dev);
+        k_mutex_unlock(&i2c3_mutex);
+    }
+
+    EXTI->PR |= (1 << 11)|(1 << 10)|(1 << 13)|(1 << 14)|(1 << 9)|(1 << 8)|(1 << 0);
     EXTI->IMR |= (1 << 11)|(1 << 10)|(1 << 13)|(1 << 14)|(1 << 9)|(1 << 8)|(1 << 0); // Enable interrupt
     GPIOC->BSRR = (1 << 1); // on led
-    k_event_post(&Initial_State_events,Radio_Ready);
-
+    // k_event_post(&Initial_State_events,Radio_Ready);
+    k_event_post(&Initial_State_events, Position_Loop_Ready);
+    // k_event_post(&Initial_State_events, Angle_Loop_Ready);
     // AT24LC
     k_thread_abort(k_current_get());
 }
@@ -207,13 +202,12 @@ void BMI088_Task(void *p1, void *p2, void *p3){     // 200Hz
         if(k_mutex_lock(&i2c3_mutex,K_MSEC(2)) == 0){
             i2c_dma_read_data(dev_i2c3,ACC_ADDR,ACC_Data,acc_data,6, &dma1_stream2_signal);
             i2c_dma_read_data(dev_i2c3,GYRO_ADDR,GYRO_Data,gyro_data,6,&dma1_stream2_signal);
+            Calculate_And_Filter_Angle(acc_data,gyro_data,dt);
+            packet.roll_tsf = drone_angle.Roll_angle;
+            packet.pitch_tsf = drone_angle.Pitch_angle;
+            packet.yaw_tsf = drone_angle.Yaw_angle;
             k_mutex_unlock(&i2c3_mutex);
         }
-        Calculate_And_Filter_Angle(acc_data,gyro_data,dt);
-        packet.roll_tsf = drone_angle.Roll_angle;
-        packet.pitch_tsf = drone_angle.Pitch_angle;
-        packet.yaw_tsf = drone_angle.Yaw_angle;
-        // cal PID
     }
 }
 
@@ -229,9 +223,9 @@ void HMC5883_Task(void *p1, void *p2, void *p3){
         k_sem_take(&HMC5883_signal, K_FOREVER); // exti 0
         if(k_mutex_lock(&i2c3_mutex, K_MSEC(5)) == 0){
             i2c_dma_read_data(dev_i2c3,HMC5883_ADDR, HMC5883_DATA, hmc_data, sizeof(hmc_data), &dma1_stream2_signal);
+            Cal_The_Direction_Of_Yaw(hmc_data);
             k_mutex_unlock(&i2c3_mutex);
         }
-        Cal_The_Direction_Of_Yaw(hmc_data);
     }
 }
 
@@ -284,7 +278,6 @@ void PMW3901_Task(void *p1, void *p2, void *p3) {
                 packet.x_pos_tsf += delta_x;
                 packet.y_pos_tsf += delta_y;
             }
-            // Calculate PID position control...
         } else {
             pmw3901_read_reg(dev_spi2, 0x02); 
             k_work_submit(&pmw3901_work);
@@ -339,7 +332,7 @@ void INA226_Task(void *p1, void *p2, void *p3){
 }
 
 static uint8_t rx_buffer[256];
-void Radio_Communication(void *p1,void *p2, void *p3){ // Commands -> Leader
+void Radio_Communication(void *p1,void *p2, void *p3){      // Commands -> Leader
     k_event_wait(&Initial_State_events, Radio_Ready, false, K_FOREVER);
     usart_dma_tx(dev_usart6,(uint8_t *)&sensor_state ,sizeof(Sensor_Status));
     usart_dma_wait_complete(dev_usart6);
@@ -366,6 +359,26 @@ void Radio_Communication(void *p1,void *p2, void *p3){ // Commands -> Leader
     }
 }
 
+void Position_Loop_Task(void *p1, void *p2, void *p3){ // testing
+    // Setpoint take from leader
+    local_desired.x = 0;
+    local_desired.y = 0;
+    local_desired.z = 100; // 100 mm
+
+    k_event_wait(&Initial_State_events, Position_Loop_Ready, false, K_FOREVER);
+    while(1){
+        Position_Loop_PID(local_desired.x, local_desired.y, local_desired.z);
+        k_msleep(20); // 50 Hz
+    }
+}
+
+void Angle_Loop_Task(void *p1, void *p2, void *p3){ // Stop comporary
+    k_event_wait(&Initial_State_events, Angle_Loop_Ready, false, K_FOREVER);
+    while(1){
+        k_msleep(1); // 1KHz
+    }
+}
+
 K_THREAD_DEFINE(start_default_id,Default_Thread_Stack_Size,Start_Default_Task,NULL,NULL,NULL,Default_Priority,0,0);
 K_THREAD_DEFINE(bmi088_id,BMI088_Thread_Stack_Size,BMI088_Task,NULL,NULL,NULL,BMI088_Priority,0,0);
 K_THREAD_DEFINE(pmw3901_id,PMW3901_Thread_Stack_Size,PMW3901_Task,NULL,NULL,NULL,PMW3901_Priority,0,0);
@@ -373,6 +386,11 @@ K_THREAD_DEFINE(bmp280_id,BMP280_Thread_Stack_Size,BMP280_Task,NULL,NULL,NULL,BM
 K_THREAD_DEFINE(hmc5883_id, HMC5883_Thread_Stack_Size, HMC5883_Task, NULL, NULL, NULL, HMC5883_Priority, 0, 0);
 K_THREAD_DEFINE(ina226_id, INA226_Thread_Stack_Size, INA226_Task, NULL, NULL, NULL, INA226_Priority, 0,0);
 K_THREAD_DEFINE(vl53_id, VL53_Thread_Stack_Size,VL53_Task,NULL,NULL,NULL,VL53_Priority,0,0);
+
+
+// PID
+K_THREAD_DEFINE(pos_id, Position_Loop_Stack_Size, Position_Loop_Task, NULL, NULL, NULL, Position_Priority, 0, 0);
+K_THREAD_DEFINE(angle_id,Angle_Loop_Stack_Size,Angle_Loop_Task,NULL,NULL,NULL,Angle_Priority,0,0);
 
 // Mutex
 K_MUTEX_DEFINE(i2c3_mutex);

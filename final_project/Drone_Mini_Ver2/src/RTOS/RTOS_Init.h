@@ -5,6 +5,7 @@
 #include "zephyr/kernel.h"
 
 #define Default_Thread_Stack_Size 1024
+#define Comms_Thread_Stack_Size 1024
 
 #define BMI088_Thread_Stack_Size 1024
 #define HMC5883_Thread_Stack_Size 512
@@ -14,23 +15,34 @@
 #define BMP280_Thread_Stack_Size 512
 #define INA226_Thread_Stack_Size 512
 
-#define BMI088_Priority 3
-#define PMW3901_Priority 4
-#define HMC5883_Priority 4
-#define VL53_Priority 4
+// PID loop
+#define Position_Loop_Stack_Size 1024
+#define Angle_Loop_Stack_Size 1024
 
-#define BMP280_Priority 6 
-#define Default_Priority 6
-#define INA226_Priority 5
+#define Position_Priority 3
+#define Angle_Priority 4
+
+#define BMI088_Priority 5
+#define PMW3901_Priority 5
+#define HMC5883_Priority 5
+#define VL53_Priority 5
+
+#define Comms_Priority 6
+#define INA226_Priority 6
+#define BMP280_Priority 7 
+#define Default_Priority 7
 
 #define BMI088_Ready (1 << 0)
 #define HMC5883_Ready (1 << 1)
 #define BMP280_Ready (1 << 2)
 #define INA226_Ready (1 << 3)
-#define AT24_Ready (1 << 4)
+#define AT24_Flag (1 << 4)
 #define PMW3901_Ready (1 << 5)
 #define VL53_Ready (1 << 6)
-#define Radio_Ready (1 << 7)
+#define Comms_Flag (1 << 7)
+#define Radio_Ready (1 << 8)
+#define Position_Loop_Ready (1 << 9)
+#define Angle_Loop_Ready (1 << 10)
 
 extern volatile int i2c3_error_count, pmw3901_error_init, ina_error_init, bmp_error_init,hmc_error_init; 
 
