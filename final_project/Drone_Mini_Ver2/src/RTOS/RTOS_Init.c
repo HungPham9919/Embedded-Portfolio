@@ -41,7 +41,7 @@ void i2c3_error_work_handler(struct k_work *work){
     drone_i2c_clearbus(dev_i2c3);
     i2c3_error_count++;
 }
-volatile uint32_t pa9_state;
+
 void Start_Default_Task(void *p1, void *p2, void *p3){
     uint8_t sensors_addr[7] = {0};
     while(1){
@@ -72,8 +72,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
     drone_sensor_addr.sensor6 = sensors_addr[5];
     drone_sensor_addr.sensor7 = sensors_addr[6];
 
-    // printk("Found all Sensor \n");
-
     // BMI088
     while (1) {
         if(bmi_error_init > 10){
@@ -88,7 +86,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_work_submit(&bmi088_work);
         k_msleep(10);
     }
-    // printk("BMI088 OK \n");
 
     // HMC5883
     while (1) {
@@ -105,9 +102,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(10);
     }
 
-    // if(hmc_error_init < 10) printk("HMC5883 OK \n");
-    // else printk("HMC5883 Failed \n");
-
     // Vl53L1X
     while(1){
         if(vl53_error_init > 10) {
@@ -115,19 +109,17 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
             break;
         }
         if(VL53L1_Init(vl53_dev) == VL53L1_ERROR_NONE){
-            VL53L1_StartMeasurement(vl53_dev);
-            VL53L1_WrByte(vl53_dev, 0x0046, 0x04);
-            sensor_state.vl53_state = true;
-            k_event_post(&Initial_State_events, VL53_Ready);
-            break;
+            // Start đo lần đầu
+            if (VL53L1_StartMeasurement(vl53_dev) == VL53L1_ERROR_NONE) {
+                VL53L1_ClearInterruptAndStartMeasurement(vl53_dev);
+                sensor_state.vl53_state = true;
+                k_event_post(&Initial_State_events, VL53_Ready);
+                break;
+            }
         }
         k_work_submit(&vl53_work);
         k_msleep(10);
     }
-
-    // if (vl53_error_init < 10) {
-    //     printk("VL53L1X OK\n");
-    // }
 
     // INA226
     while(1){
@@ -144,9 +136,6 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(5);
     }
 
-    // if(ina_error_init < 10) printk("INA226 OK \n");
-    // else printk("INA226 Failed \n");
-
     // BMP280
     while (1) {
         if(bmp_error_init > 10){
@@ -162,10 +151,7 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(5);
     }
 
-    // if(bmp_error_init < 10) printk("BMP280 OK \n");
-    // else printk("BMP280 Failed \n");
-
-        // PMW3901
+    // PMW3901
     while (1) {
         if(pmw3901_error_init > 10){
             sensor_state.pmw3901_state = false;
@@ -181,16 +167,24 @@ void Start_Default_Task(void *p1, void *p2, void *p3){
         k_msleep(15);
     }
     pmw3901_init_registers(dev_spi2);
-    // if(pmw3901_error_init < 10) printk("PMW3901 OK \n");
-    // else printk("PMW3901 Failed \n");
 
+    if(sensor_state.vl53_state){
+        k_mutex_lock(&i2c3_mutex, K_FOREVER);
+        VL53L1_ClearInterruptAndStartMeasurement(vl53_dev);
+        k_mutex_unlock(&i2c3_mutex);
+    }
+
+    EXTI->PR |= (1 << 11)|(1 << 10)|(1 << 13)|(1 << 14)|(1 << 9)|(1 << 8)|(1 << 0);
     EXTI->IMR |= (1 << 11)|(1 << 10)|(1 << 13)|(1 << 14)|(1 << 9)|(1 << 8)|(1 << 0); // Enable interrupt
+    
+    // PID and Kalman Filter
     Setup_PID_For_Closed_Loop();
     kalman_init();
     
     GPIOC->BSRR = (1 << 1); // on led
+
     // k_event_post(&Initial_State_events,Radio_Ready);
-    // k_event_post(&Initial_State_events, Position_Loop_Ready);
+    k_event_post(&Initial_State_events, Position_Loop_Ready);
     // k_event_post(&Initial_State_events, Angle_Loop_Ready);
 
     // AT24LC
@@ -215,13 +209,14 @@ void BMI088_Task(void *p1, void *p2, void *p3){     // 200Hz
         if(k_mutex_lock(&i2c3_mutex,K_MSEC(2)) == 0){
             i2c_dma_read_data(dev_i2c3,ACC_ADDR,ACC_Data,acc_data,6, &dma1_stream2_signal);
             i2c_dma_read_data(dev_i2c3,GYRO_ADDR,GYRO_Data,gyro_data,6,&dma1_stream2_signal);
+            Calculate_And_Filter_Angle(acc_data,gyro_data,dt);
+        
+            packet.roll_tsf = drone_angle.Roll_angle;
+            packet.pitch_tsf = drone_angle.Pitch_angle;
+            packet.yaw_tsf = drone_angle.Yaw_angle;
+            
             k_mutex_unlock(&i2c3_mutex);
         }
-        Calculate_And_Filter_Angle(acc_data,gyro_data,dt);
-        
-        packet.roll_tsf = drone_angle.Roll_angle;
-        packet.pitch_tsf = drone_angle.Pitch_angle;
-        packet.yaw_tsf = drone_angle.Yaw_angle;
     }
 }
 
@@ -237,9 +232,9 @@ void HMC5883_Task(void *p1, void *p2, void *p3){
         k_sem_take(&HMC5883_signal, K_FOREVER); // exti 0
         if(k_mutex_lock(&i2c3_mutex, K_MSEC(5)) == 0){
             i2c_dma_read_data(dev_i2c3,HMC5883_ADDR, HMC5883_DATA, hmc_data, sizeof(hmc_data), &dma1_stream2_signal);
+            Cal_The_Direction_Of_Yaw(hmc_data);
             k_mutex_unlock(&i2c3_mutex);
         }
-        Cal_The_Direction_Of_Yaw(hmc_data);
     }
 }
 
@@ -253,16 +248,16 @@ void VL53_Task(void *p1, void *p2, void *p3){
     k_sem_reset(&vl53_signal);
     VL53L1_RangingMeasurementData_t RangingData;
     k_event_wait(&Initial_State_events, VL53_Ready, false, K_FOREVER);
-
     while(1){
         k_sem_take(&vl53_signal, K_FOREVER);
         if(k_mutex_lock(&i2c3_mutex, K_FOREVER) == 0){
+            // 1. Đọc dữ liệu khoảng cách
             if (VL53L1_GetRangingMeasurementData(vl53_dev, &RangingData) == VL53L1_ERROR_NONE) {
                 if (RangingData.RangeStatus == 0) {
-                    packet.z_pos_tsf = RangingData.RangeMilliMeter; // mm
+                    packet.z_pos_tsf = RangingData.RangeMilliMeter;
                 }
             }
-            VL53L1_WrByte(vl53_dev, 0x0086, 0x01);
+            VL53L1_ClearInterruptAndStartMeasurement(vl53_dev);
             k_mutex_unlock(&i2c3_mutex);
         }
     }

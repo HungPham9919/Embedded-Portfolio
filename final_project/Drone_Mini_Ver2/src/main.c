@@ -13,7 +13,7 @@
 
 int main(void)
 {
-    init_usb_shell();
+    // init_usb_shell();
     BUS_Init();
     Init_The_Config_Of_Drone();
     for(int i = 0; i < 2;i++) {

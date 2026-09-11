@@ -19,10 +19,10 @@
 #define Position_Loop_Stack_Size 1024
 #define Angle_Loop_Stack_Size 1024
 
-#define Position_Priority 6
-#define Angle_Priority 3
+#define Position_Priority 3
+#define Angle_Priority 4
 
-#define BMI088_Priority 4
+#define BMI088_Priority 5
 #define PMW3901_Priority 5
 #define HMC5883_Priority 5
 #define VL53_Priority 5

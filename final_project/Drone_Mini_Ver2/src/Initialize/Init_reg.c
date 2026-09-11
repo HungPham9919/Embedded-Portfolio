@@ -84,17 +84,17 @@ void Init_The_Config_Of_Drone(void){
 
 	// PA9 - GPIO -VL53L1X - Active low
     GPIOA->MODER &= ~(3 << 18);
+	GPIOA->PUPDR &= ~(3 << 18);
+	GPIOA->PUPDR |= (1 << 18); // pull up
+
 	SYSCFG->EXTICR[2] &= ~(0x0F << 4);
     EXTI->FTSR |= (1 << 9); // Falling trigger
-	EXTI->PR |= (1 << 9);
-	// EXTI->IMR |= (1 << 9); // Thử bật lên trước khi cấu hình VL53
 
 	// PC0 HMC5883 - DRDY - Active low - EXTI-0
 	GPIOC->MODER &= ~(3 << 0);
 	SYSCFG->EXTICR[0] &= ~(0x0F << 0);
 	SYSCFG->EXTICR[0] |= (2 << 0);
 	EXTI->FTSR |= (1 << 0);
-	EXTI->PR |= (1 << 0);
 	irq_connect_dynamic(6, 6, exti0_irqhandler, NULL, 0);
 	irq_enable(6);
 
@@ -103,8 +103,6 @@ void Init_The_Config_Of_Drone(void){
 	SYSCFG->EXTICR[2] &= ~(0x0F << 0);
 	SYSCFG->EXTICR[2] |= (2 << 0);
     EXTI->FTSR |= (1 << 8); // Falling trigger
-	EXTI->PR = (1 << 8);
-
 	irq_connect_dynamic(23, 5, exti9_5irqhandler, NULL, 0);
 	irq_enable(23);
 
@@ -113,16 +111,13 @@ void Init_The_Config_Of_Drone(void){
 	SYSCFG->EXTICR[2] &= ~(0x0F << 12);
 	SYSCFG->EXTICR[2] |= (2 << 12);
 	EXTI->FTSR |= (1 << 11);
-	EXTI->PR = (1 << 11);
 
 	// PC13-PC14 
 
 	GPIOC->MODER &= ~(3 << 26) &~(3 << 28); 
 	SYSCFG->EXTICR[3] &= ~((0xF << 4) | (0xF << 8));
 	SYSCFG->EXTICR[3] |= (2 << 4)|(2 << 8);
-
 	EXTI->RTSR |= (1 << 13)|(1 << 14); // active high
-	EXTI->PR = (1 << 13)|(1 << 14); // clear flag
 
 	irq_connect_dynamic(40, 5, exti15_10irqhandler, NULL, 0);
 	irq_enable(40);
